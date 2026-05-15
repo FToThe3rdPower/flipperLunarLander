@@ -1,0 +1,457 @@
+#include "game.h"
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+#include <gui/canvas.h>
+
+/* ----- Tunables (all in pixels & seconds) -------------------------------- */
+
+#define LANDER_HALF_W      3.0f    // body half-width
+#define LANDER_FOOT_DX     3.0f    // foot offset from center (x)
+#define LANDER_FOOT_DY     3.0f    // foot offset from center (y, below body)
+#define LANDER_BODY_TOP    -3.0f   // y of body top (above center)
+#define LANDER_BODY_BOT    1.0f    // y of body bottom
+
+#define PAD_W              16      // 2x lander total width
+#define PAD_MIN_Y          38      // pads sit in lower half of screen
+#define PAD_MAX_Y          56
+
+#define GRAVITY            6.0f    // pixels/sec^2 downward
+#define THRUST_MAX         18.0f   // pixels/sec^2 along lander up-axis at full thrust
+#define IMPULSE_DV         5.0f    // velocity change per tap (TapImpulse mode)
+#define IMPULSE_FUEL       2.5f
+#define RAMP_TIME          0.9f    // seconds from 0 -> full thrust in Ramp mode
+#define FUEL_BURN_RATE     12.0f   // units/sec at full thrust
+#define ROT_RATE           1.8f    // radians/sec while Left/Right held
+#define WRAP_X             1       // wrap horizontally (classic)
+
+#define SAFE_VY            8.0f
+#define SAFE_VX            4.0f
+#define SAFE_ANGLE         0.22f   // ~12.6 degrees
+
+#define START_FUEL         100.0f
+
+/* ----- RNG (xorshift32, seeded from level) ------------------------------- */
+
+static uint32_t game_rand(GameState* g) {
+    uint32_t x = g->rng_state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    g->rng_state = x ? x : 0xDEADBEEFu;
+    return g->rng_state;
+}
+
+static int rand_range(GameState* g, int lo, int hi) {
+    if (hi <= lo) return lo;
+    return lo + (int)(game_rand(g) % (uint32_t)(hi - lo + 1));
+}
+
+/* ----- Terrain ----------------------------------------------------------- */
+
+static int clamp_int(int v, int lo, int hi) {
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+static void terrain_generate(GameState* g) {
+    /* 1D random walk, then 3-tap smoothing, clamped to the lower half of screen. */
+    int y = rand_range(g, PAD_MIN_Y, PAD_MAX_Y);
+    for (int x = 0; x < SCREEN_W; x++) {
+        int step = rand_range(g, -2, 2);
+        y = clamp_int(y + step, PAD_MIN_Y - 6, PAD_MAX_Y);
+        g->terrain[x] = (uint8_t)y;
+    }
+    for (int pass = 0; pass < 3; pass++) {
+        for (int x = 1; x < SCREEN_W - 1; x++) {
+            g->terrain[x] = (uint8_t)(
+                (g->terrain[x - 1] + g->terrain[x] + g->terrain[x + 1]) / 3);
+        }
+    }
+}
+
+int game_pads_for_level(int level) {
+    if (level <= 3)  return 5;
+    if (level <= 6)  return 4;
+    if (level <= 8)  return 3;
+    if (level == 9)  return 2;
+    return 1;
+}
+
+static void pads_place(GameState* g) {
+    g->num_pads = (uint8_t)game_pads_for_level(g->level);
+
+    /* Divide the playable strip into num_pads regions and place one pad per
+     * region with random horizontal jitter. Guarantees no overlap. */
+    int margin = 6;
+    int usable = SCREEN_W - 2 * margin;
+    int region_w = usable / g->num_pads;
+
+    for (int i = 0; i < g->num_pads; i++) {
+        int region_start = margin + i * region_w;
+        int max_offset = region_w - PAD_W;
+        int offset = (max_offset > 0) ? rand_range(g, 0, max_offset) : 0;
+        int px = region_start + offset;
+        if (px < 0) px = 0;
+        if (px + PAD_W > SCREEN_W) px = SCREEN_W - PAD_W;
+
+        /* Flatten terrain across the pad. Use the lowest (largest-y) value
+         * under the pad span so the pad sits flush with surrounding ground. */
+        int flat_y = g->terrain[px];
+        for (int dx = 1; dx < PAD_W; dx++) {
+            int t = g->terrain[px + dx];
+            if (t > flat_y) flat_y = t;
+        }
+        for (int dx = 0; dx < PAD_W; dx++) {
+            g->terrain[px + dx] = (uint8_t)flat_y;
+        }
+        g->pad_x[i] = (uint8_t)px;
+    }
+}
+
+/* ----- Init -------------------------------------------------------------- */
+
+void game_init(GameState* g, int level) {
+    memset(g, 0, sizeof(*g));
+    g->level = level;
+    /* Seed depends on level. Mixing constants keep adjacent levels visually
+     * different rather than near-identical. */
+    g->rng_state = 0xA5C3F00Du ^ ((uint32_t)level * 0x9E3779B1u);
+
+    terrain_generate(g);
+    pads_place(g);
+
+    g->x = 12.0f;
+    g->y = 6.0f;
+    g->vx = 4.0f;    // classic leftward drift -> we start on the left moving right
+    g->vy = 0.0f;
+    g->angle = 0.0f;
+    g->fuel = START_FUEL;
+    g->status = GameStatusFlying;
+    g->status_time = 0.0f;
+    g->elapsed = 0.0f;
+    g->score = 0;
+    g->up_hold_time = 0.0f;
+    g->current_thrust = 0.0f;
+}
+
+/* ----- Input ------------------------------------------------------------- */
+
+GameAction game_input(GameState* g, const InputEvent* ev) {
+    /* Back from a status screen, or from flying, returns to menu. */
+    if (ev->key == InputKeyBack &&
+        (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
+        return GameActionExitToMenu;
+    }
+
+    /* Track held state for Left/Right/Up. The Flipper sends Press + Release
+     * for every keypress, plus Short/Long/Repeat in between. Held state lives
+     * between Press and Release. */
+    if (ev->type == InputTypePress) {
+        switch (ev->key) {
+            case InputKeyLeft:  g->left_held = true; break;
+            case InputKeyRight: g->right_held = true; break;
+            case InputKeyUp:
+                g->up_held = true;
+                g->up_hold_time = 0.0f;
+                break;
+            default: break;
+        }
+    } else if (ev->type == InputTypeRelease) {
+        switch (ev->key) {
+            case InputKeyLeft:  g->left_held = false; break;
+            case InputKeyRight: g->right_held = false; break;
+            case InputKeyUp:    g->up_held = false; break;
+            default: break;
+        }
+    }
+
+    /* On status screens, OK retries (crash) or advances (landed). */
+    if (ev->type == InputTypeShort && ev->key == InputKeyOk) {
+        if (g->status == GameStatusLanded) {
+            int next = g->level + 1;
+            if (next > 10) next = 1;  // wrap; later: "You win!" screen
+            game_init(g, next);
+        } else if (g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) {
+            game_init(g, g->level);
+        }
+    }
+
+    return GameActionNone;
+}
+
+/* ----- Physics ----------------------------------------------------------- */
+
+static bool on_pad(const GameState* g, int x_left, int x_right) {
+    for (int i = 0; i < g->num_pads; i++) {
+        int px = g->pad_x[i];
+        if (x_left >= px && x_right <= px + PAD_W - 1) return true;
+    }
+    return false;
+}
+
+static void check_collision(GameState* g) {
+    /* Rotate both foot positions into world space. */
+    float s = sinf(g->angle);
+    float c = cosf(g->angle);
+
+    /* Local foot coords: (-LANDER_FOOT_DX, LANDER_FOOT_DY) and (+LANDER_FOOT_DX, LANDER_FOOT_DY) */
+    float lfx = g->x + (-LANDER_FOOT_DX) * c - LANDER_FOOT_DY * s;
+    float lfy = g->y + (-LANDER_FOOT_DX) * s + LANDER_FOOT_DY * c;
+    float rfx = g->x +  LANDER_FOOT_DX  * c - LANDER_FOOT_DY * s;
+    float rfy = g->y +  LANDER_FOOT_DX  * s + LANDER_FOOT_DY * c;
+
+    int lxi = clamp_int((int)lfx, 0, SCREEN_W - 1);
+    int rxi = clamp_int((int)rfx, 0, SCREEN_W - 1);
+
+    bool left_contact  = lfy >= (float)g->terrain[lxi];
+    bool right_contact = rfy >= (float)g->terrain[rxi];
+
+    if (!left_contact && !right_contact) return;
+
+    /* Something touched. Decide outcome.
+     * We don't require BOTH feet to be in contact in the same frame —
+     * with sub-pixel motion and any tilt, one foot always touches first.
+     * The `upright` check already enforces that the lander is level enough. */
+    int xmin = lxi < rxi ? lxi : rxi;
+    int xmax = lxi > rxi ? lxi : rxi;
+    bool on_flat = on_pad(g, xmin, xmax);
+    bool slow_enough = (fabsf(g->vy) < SAFE_VY) && (fabsf(g->vx) < SAFE_VX);
+    bool upright = fabsf(g->angle) < SAFE_ANGLE;
+
+    if (on_flat && slow_enough && upright) {
+        g->status = GameStatusLanded;
+    } else {
+        g->status = GameStatusCrashed;
+    }
+    g->status_time = 0.0f;
+    g->vx = g->vy = 0.0f;
+}
+
+void game_tick(GameState* g, ThrustMode mode, float dt) {
+    g->status_time += dt;
+
+    if (g->status != GameStatusFlying) {
+        return;
+    }
+
+    g->elapsed += dt;
+
+    /* Rotation */
+    if (g->left_held)  g->angle -= ROT_RATE * dt;
+    if (g->right_held) g->angle += ROT_RATE * dt;
+
+    /* Thrust level (0..1) per mode. */
+    g->current_thrust = 0.0f;
+    if (mode == ThrustModeBinary) {
+        g->current_thrust = g->up_held ? 1.0f : 0.0f;
+    } else if (mode == ThrustModeRamp) {
+        if (g->up_held) {
+            g->up_hold_time += dt;
+            float t = g->up_hold_time / RAMP_TIME;
+            if (t > 1.0f) t = 1.0f;
+            g->current_thrust = t;
+        } else {
+            g->up_hold_time = 0.0f;
+            g->current_thrust = 0.0f;
+        }
+    }
+    /* TapImpulse handled by game_input on the press event itself (see below). */
+
+    /* Apply thrust acceleration along lander up-axis (-y when angle=0). */
+    if (g->current_thrust > 0.0f && g->fuel > 0.0f) {
+        float a = THRUST_MAX * g->current_thrust;
+        g->vx += sinf(g->angle) * a * dt;
+        g->vy += -cosf(g->angle) * a * dt;
+        g->fuel -= FUEL_BURN_RATE * g->current_thrust * dt;
+        if (g->fuel < 0.0f) g->fuel = 0.0f;
+    }
+
+    /* Gravity */
+    g->vy += GRAVITY * dt;
+
+    /* Integrate */
+    g->x += g->vx * dt;
+    g->y += g->vy * dt;
+
+    /* Horizontal wrap */
+    if (WRAP_X) {
+        if (g->x < 0.0f) g->x += SCREEN_W;
+        if (g->x >= SCREEN_W) g->x -= SCREEN_W;
+    } else {
+        if (g->x < 0.0f) { g->x = 0.0f; g->vx = 0.0f; }
+        if (g->x >= SCREEN_W) { g->x = SCREEN_W - 1; g->vx = 0.0f; }
+    }
+
+    /* Out-of-fuel doesn't immediately end the game (you can still glide), but
+     * if you've also got no upward chance, we'll let collision handle it. */
+    if (g->fuel <= 0.0f && g->vy > 0.0f && g->y > SCREEN_H - 20) {
+        /* Soft signal — let the crash detection determine outcome; this flag
+         * is unused for now. */
+    }
+
+    /* Collision with terrain or ceiling */
+    if (g->y < 0.0f) { g->y = 0.0f; if (g->vy < 0.0f) g->vy = 0.0f; }
+
+    check_collision(g);
+}
+
+/* ----- TapImpulse handling -----------------------------------------------
+ * Tap impulses fire instantly on press, separate from the per-tick thrust
+ * level. The main app dispatches this via game_input_tap() below.
+ * For modularity we handle it inside game_input() when the user presses Up
+ * AND the mode is TapImpulse.
+ */
+void game_apply_tap_impulse(GameState* g) {
+    if (g->status != GameStatusFlying || g->fuel <= 0.0f) return;
+    g->vx += sinf(g->angle) * IMPULSE_DV;
+    g->vy += -cosf(g->angle) * IMPULSE_DV;
+    g->fuel -= IMPULSE_FUEL;
+    if (g->fuel < 0.0f) g->fuel = 0.0f;
+}
+
+/* ----- Drawing ----------------------------------------------------------- */
+
+static void draw_terrain(Canvas* canvas, const GameState* g) {
+    for (int x = 0; x < SCREEN_W - 1; x++) {
+        canvas_draw_line(canvas, x, g->terrain[x], x + 1, g->terrain[x + 1]);
+    }
+    /* Tick marks on pad endpoints + small "2x" label above. */
+    canvas_set_font(canvas, FontSecondary);
+    for (int i = 0; i < g->num_pads; i++) {
+        int px = g->pad_x[i];
+        int py = g->terrain[px];
+        canvas_draw_line(canvas, px - 1, py, px - 1, py + 3);
+        canvas_draw_line(canvas, px + PAD_W, py, px + PAD_W, py + 3);
+        if (py > 9) {
+            canvas_draw_str_aligned(
+                canvas, px + PAD_W / 2, py - 2, AlignCenter, AlignBottom, "2x");
+        }
+    }
+}
+
+/* Lander geometry in local space, in screen-y-down convention.
+ * Body triangle: (0, BODY_TOP), (-LANDER_HALF_W, BODY_BOT), (+LANDER_HALF_W, BODY_BOT)
+ * Legs:         (-LANDER_HALF_W+0.5, BODY_BOT) -> (-FOOT_DX, FOOT_DY)
+ *                (+LANDER_HALF_W-0.5, BODY_BOT) -> (+FOOT_DX, FOOT_DY)
+ */
+static void draw_lander(Canvas* canvas, const GameState* g) {
+    float s = sinf(g->angle);
+    float c = cosf(g->angle);
+
+#define R_X(lx, ly) ((int)(g->x + (lx) * c - (ly) * s))
+#define R_Y(lx, ly) ((int)(g->y + (lx) * s + (ly) * c))
+
+    /* Body triangle */
+    canvas_draw_line(canvas,
+        R_X(-LANDER_HALF_W, LANDER_BODY_BOT), R_Y(-LANDER_HALF_W, LANDER_BODY_BOT),
+        R_X(LANDER_HALF_W,  LANDER_BODY_BOT), R_Y( LANDER_HALF_W, LANDER_BODY_BOT));
+    canvas_draw_line(canvas,
+        R_X(-LANDER_HALF_W, LANDER_BODY_BOT), R_Y(-LANDER_HALF_W, LANDER_BODY_BOT),
+        R_X(0,              LANDER_BODY_TOP), R_Y(0,              LANDER_BODY_TOP));
+    canvas_draw_line(canvas,
+        R_X(0,              LANDER_BODY_TOP), R_Y(0,              LANDER_BODY_TOP),
+        R_X(LANDER_HALF_W,  LANDER_BODY_BOT), R_Y( LANDER_HALF_W, LANDER_BODY_BOT));
+
+    /* Legs */
+    canvas_draw_line(canvas,
+        R_X(-LANDER_HALF_W + 0.5f, LANDER_BODY_BOT),
+        R_Y(-LANDER_HALF_W + 0.5f, LANDER_BODY_BOT),
+        R_X(-LANDER_FOOT_DX, LANDER_FOOT_DY),
+        R_Y(-LANDER_FOOT_DX, LANDER_FOOT_DY));
+    canvas_draw_line(canvas,
+        R_X( LANDER_HALF_W - 0.5f, LANDER_BODY_BOT),
+        R_Y( LANDER_HALF_W - 0.5f, LANDER_BODY_BOT),
+        R_X( LANDER_FOOT_DX, LANDER_FOOT_DY),
+        R_Y( LANDER_FOOT_DX, LANDER_FOOT_DY));
+
+    /* Thrust flame (length scales with current_thrust). */
+    if (g->current_thrust > 0.05f && g->fuel > 0.0f && g->status == GameStatusFlying) {
+        float flame_len = 2.0f + 4.0f * g->current_thrust;
+        canvas_draw_line(canvas,
+            R_X(-1.5f, LANDER_BODY_BOT),
+            R_Y(-1.5f, LANDER_BODY_BOT),
+            R_X(0, LANDER_BODY_BOT + flame_len),
+            R_Y(0, LANDER_BODY_BOT + flame_len));
+        canvas_draw_line(canvas,
+            R_X( 1.5f, LANDER_BODY_BOT),
+            R_Y( 1.5f, LANDER_BODY_BOT),
+            R_X(0, LANDER_BODY_BOT + flame_len),
+            R_Y(0, LANDER_BODY_BOT + flame_len));
+    }
+
+#undef R_X
+#undef R_Y
+}
+
+static void draw_hud(Canvas* canvas, const GameState* g) {
+    canvas_set_font(canvas, FontSecondary);
+
+    char buf[16];
+
+    /* Left column - AlignTop so successive lines stack predictably. */
+    snprintf(buf, sizeof(buf), "S:%04d", g->score);
+    canvas_draw_str_aligned(canvas, 0, 0, AlignLeft, AlignTop, buf);
+
+    snprintf(buf, sizeof(buf), "T:%04d", (int)g->elapsed);
+    canvas_draw_str_aligned(canvas, 0, 8, AlignLeft, AlignTop, buf);
+
+    snprintf(buf, sizeof(buf), "F:%03d", (int)g->fuel);
+    canvas_draw_str_aligned(canvas, 0, 16, AlignLeft, AlignTop, buf);
+
+    /* Right column - %+4d keeps width stable as values change sign / magnitude. */
+    int xi = clamp_int((int)g->x, 0, SCREEN_W - 1);
+    int alt = (int)((float)g->terrain[xi] - g->y);
+    if (alt < 0) alt = 0;
+
+    snprintf(buf, sizeof(buf), "A:%3d", alt);
+    canvas_draw_str_aligned(canvas, SCREEN_W, 0, AlignRight, AlignTop, buf);
+
+    snprintf(buf, sizeof(buf), "Vx:%+4d", (int)g->vx);
+    canvas_draw_str_aligned(canvas, SCREEN_W, 8, AlignRight, AlignTop, buf);
+
+    snprintf(buf, sizeof(buf), "Vy:%+4d", (int)g->vy);
+    canvas_draw_str_aligned(canvas, SCREEN_W, 16, AlignRight, AlignTop, buf);
+}
+
+static void draw_status_banner(Canvas* canvas, const GameState* g) {
+    if (g->status == GameStatusFlying) return;
+
+    const char* line1 = "";
+    const char* line2 = "";
+    switch (g->status) {
+        case GameStatusLanded:
+            line1 = "LANDED!";
+            line2 = "OK: next  Back: menu";
+            break;
+        case GameStatusCrashed:
+            line1 = "CRASHED";
+            line2 = "OK: retry  Back: menu";
+            break;
+        case GameStatusOutOfFuel:
+            line1 = "NO FUEL";
+            line2 = "OK: retry  Back: menu";
+            break;
+        default: break;
+    }
+
+    /* Banner box, centered. */
+    int bx = 14, by = 22, bw = SCREEN_W - 28, bh = 20;
+    canvas_set_color(canvas, ColorWhite);
+    canvas_draw_box(canvas, bx, by, bw, bh);
+    canvas_set_color(canvas, ColorBlack);
+    canvas_draw_rframe(canvas, bx, by, bw, bh, 2);
+
+    canvas_set_font(canvas, FontPrimary);
+    canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 8, AlignCenter, AlignCenter, line1);
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 16, AlignCenter, AlignCenter, line2);
+}
+
+void game_draw(Canvas* canvas, const GameState* g) {
+    draw_terrain(canvas, g);
+    draw_lander(canvas, g);
+    draw_hud(canvas, g);
+    draw_status_banner(canvas, g);
+}
