@@ -31,7 +31,7 @@ typedef enum {
 static const char* const thrust_mode_label[ThrustModeCount] = {
     "Binary",
     "Tap Impulse",
-    "Ramp",
+    "Hold to Ramp",
 };
 
 typedef enum {
