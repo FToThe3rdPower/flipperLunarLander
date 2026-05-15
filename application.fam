@@ -1,0 +1,12 @@
+App(
+    appid="lunar_lander",
+    name="Lunar Lander",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="lunar_lander_app",
+    stack_size=2 * 1024,
+    fap_category="Games",
+    fap_author="you",
+    fap_version="0.1",
+    fap_description="Classic Atari Lunar Lander, ported to the Flipper Zero.",
+    sources=["*.c"],
+)
