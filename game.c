@@ -13,8 +13,8 @@
 #define LANDER_BODY_BOT    1.0f    // y of body bottom
 
 #define PAD_W              16      // 2x lander total width
-#define PAD_MIN_Y          38      // pads sit in lower half of screen
-#define PAD_MAX_Y          56
+#define TERRAIN_TOP_Y      26      // highest peak (smallest y) after normalization
+#define TERRAIN_BOT_Y      (SCREEN_H - 1)  // deepest valley = bottom row of screen
 
 #define GRAVITY            6.0f    // pixels/sec^2 downward
 #define THRUST_MAX         18.0f   // pixels/sec^2 along lander up-axis at full thrust
@@ -56,18 +56,37 @@ static int clamp_int(int v, int lo, int hi) {
 }
 
 static void terrain_generate(GameState* g) {
-    /* 1D random walk, then 3-tap smoothing, clamped to the lower half of screen. */
-    int y = rand_range(g, PAD_MIN_Y, PAD_MAX_Y);
+    /* Random walk with mild step size, then a single smoothing pass, then
+     * linearly stretched so the lowest point sits at TERRAIN_BOT_Y (the very
+     * bottom row of the screen) and the highest peak at TERRAIN_TOP_Y. The
+     * normalization guarantees consistent vertical range regardless of how
+     * the walk happened to drift. */
+
+    int y = rand_range(g, 30, 60);
     for (int x = 0; x < SCREEN_W; x++) {
-        int step = rand_range(g, -2, 2);
-        y = clamp_int(y + step, PAD_MIN_Y - 6, PAD_MAX_Y);
+        int step = rand_range(g, -3, 3);
+        y = clamp_int(y + step, 0, 200);
         g->terrain[x] = (uint8_t)y;
     }
-    for (int pass = 0; pass < 3; pass++) {
-        for (int x = 1; x < SCREEN_W - 1; x++) {
-            g->terrain[x] = (uint8_t)(
-                (g->terrain[x - 1] + g->terrain[x] + g->terrain[x + 1]) / 3);
-        }
+
+    /* Light smoothing - just one pass to keep local variation visible. */
+    for (int x = 1; x < SCREEN_W - 1; x++) {
+        g->terrain[x] = (uint8_t)(
+            (g->terrain[x - 1] + g->terrain[x] + g->terrain[x + 1]) / 3);
+    }
+
+    /* Normalize to [TERRAIN_TOP_Y, TERRAIN_BOT_Y]. */
+    int min_y = 255, max_y = 0;
+    for (int x = 0; x < SCREEN_W; x++) {
+        if (g->terrain[x] < min_y) min_y = g->terrain[x];
+        if (g->terrain[x] > max_y) max_y = g->terrain[x];
+    }
+    int src_range = max_y - min_y;
+    if (src_range < 1) src_range = 1;
+    int dst_range = TERRAIN_BOT_Y - TERRAIN_TOP_Y;
+    for (int x = 0; x < SCREEN_W; x++) {
+        int v = TERRAIN_TOP_Y + ((int)g->terrain[x] - min_y) * dst_range / src_range;
+        g->terrain[x] = (uint8_t)v;
     }
 }
 
@@ -122,9 +141,12 @@ void game_init(GameState* g, int level) {
     terrain_generate(g);
     pads_place(g);
 
-    g->x = 12.0f;
+    g->x = (float)SCREEN_W / 2.0f;
     g->y = 6.0f;
-    g->vx = 4.0f;    // classic leftward drift -> we start on the left moving right
+    /* Random initial Vx in [-5, +5] pixels/sec. Interpreting "±5" as a range;
+     * if you wanted strictly ±5 (one or the other, never in between), the
+     * fix is `g->vx = rand_range(g, 0, 1) ? 5.0f : -5.0f;`. */
+    g->vx = (float)rand_range(g, -5, 5);
     g->vy = 0.0f;
     g->angle = 0.0f;
     g->fuel = START_FUEL;
