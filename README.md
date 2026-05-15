@@ -1,6 +1,6 @@
 # Lunar Lander for Flipper Zero
 
-A from-scratch port of the 1979 Atari arcade game.
+Clauded 'from-scratch,' inspired by 1979 Atari arcade game.
 
 ## Status
 - [x] Menu screen — thrust-mode picker (Binary / Tap Impulse / Ramp), default focus on selector, in-line descriptions
