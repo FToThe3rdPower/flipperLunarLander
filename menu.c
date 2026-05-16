@@ -1,15 +1,17 @@
 #include "menu.h"
 #include <gui/canvas.h>
 
+// List of thrust modes - due to a lack of a joystick, Claude had 2 addition suggestions to make the D-pad work for our port
 const char* const thrust_mode_label[ThrustModeCount] = {
-    "Binary",
     "Tap Impulse",
+    "Binary",
     "Ramp",
 };
 
+// Descriptions to go with the thrust modes to explain how they work a lil more
 const char* const thrust_mode_desc[ThrustModeCount] = {
-    "Hold UP = full thrust",
     "Tap UP = one burst",
+    "Hold UP = full thrust",
     "Hold UP, thrust ramps up",
 };
 
@@ -26,6 +28,7 @@ static void draw_menu_lander(Canvas* canvas, int x, int y) {
     canvas_draw_line(canvas, x + 9, y, x + 11, y);     // R foot
 }
 
+// Top title bar
 static void draw_title(Canvas* canvas) {
     draw_menu_lander(canvas, 4, 13);
     canvas_set_font(canvas, FontPrimary);
@@ -33,6 +36,7 @@ static void draw_title(Canvas* canvas) {
     canvas_draw_line(canvas, 0, 17, SCREEN_W - 1, 17);
 }
 
+// Thrust mode selector
 static void draw_thrust_row(Canvas* canvas, const MenuState* m, int y) {
     bool focused = (m->row == MenuRowThrust);
     if (focused) {
@@ -50,6 +54,7 @@ static void draw_thrust_row(Canvas* canvas, const MenuState* m, int y) {
     canvas_set_color(canvas, ColorBlack);
 }
 
+// Thurst mode explanation
 static void draw_thrust_desc(Canvas* canvas, const MenuState* m, int y) {
     canvas_set_font(canvas, FontSecondary);
     canvas_draw_str_aligned(
@@ -57,6 +62,7 @@ static void draw_thrust_desc(Canvas* canvas, const MenuState* m, int y) {
         thrust_mode_desc[m->thrust_mode]);
 }
 
+// Button draw-er
 static void draw_button(
     Canvas* canvas, int x, int y, int w, int h, const char* label, bool selected) {
     if (selected) {
@@ -70,6 +76,7 @@ static void draw_button(
     canvas_set_color(canvas, ColorBlack);
 }
 
+// Put the Start and Tutorial buttons on the bottom row
 static void draw_button_row(Canvas* canvas, const MenuState* m, int y) {
     bool row_focused = (m->row == MenuRowButtons);
     const int btn_w = 56, btn_h = 12, gap = 4;
@@ -80,6 +87,7 @@ static void draw_button_row(Canvas* canvas, const MenuState* m, int y) {
                 row_focused && m->btn == MenuBtnTutorial);
 }
 
+// Draw the menu on the screen
 void menu_draw(Canvas* canvas, const MenuState* m) {
     draw_title(canvas);
     draw_thrust_row(canvas, m, 20);
@@ -90,7 +98,7 @@ void menu_draw(Canvas* canvas, const MenuState* m) {
 /* ----- State & input ----------------------------------------------------- */
 
 void menu_init(MenuState* m) {
-    m->row = MenuRowThrust;            // <- default focus per request
+    m->row = MenuRowThrust;            //default focus on launch
     m->btn = MenuBtnStart;
     m->thrust_mode = ThrustModeBinary;
 }
