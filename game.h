@@ -41,6 +41,7 @@ typedef struct {
     uint32_t rng_state;
     uint8_t terrain[SCREEN_W];     // y of ground at each column
     uint8_t pad_x[MAX_PADS];       // left edge of each pad
+    uint8_t pad_mul[MAX_PADS];     // score multiplier per pad
     uint8_t num_pads;
 
     /* Status */
@@ -48,7 +49,9 @@ typedef struct {
     float status_time;    // seconds since status changed
 } GameState;
 
-void game_init(GameState* g, int level);
+/* Initialize game state for the given level. Score is carried forward
+ * from the caller — pass 0 for a fresh game from the menu. */
+void game_init(GameState* g, int level, int score);
 GameAction game_input(GameState* g, const InputEvent* ev);
 void game_tick(GameState* g, ThrustMode mode, float dt);
 void game_draw(Canvas* canvas, const GameState* g);

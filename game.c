@@ -15,6 +15,11 @@
 #define PAD_W              16      // 2x lander total width
 #define TERRAIN_TOP_Y      26      // highest peak (smallest y) after normalization
 #define TERRAIN_BOT_Y      (SCREEN_H - 1)  // deepest valley = bottom row of screen
+#define DESPIKE_HEIGHT     7       // min height (px) for a feature to count as a spike
+#define DESPIKE_NEAR_TOL   5       // px tolerance for "neighbor is part of the peak"
+
+#define HIGHEST_LEVEL      10      // bump this when adding levels; scoring depends on it
+#define DEFAULT_PAD_MUL    2       // placeholder — varied multipliers come later
 
 #define GRAVITY            6.0f    // pixels/sec^2 downward
 #define THRUST_MAX         18.0f   // pixels/sec^2 along lander up-axis at full thrust
@@ -90,6 +95,35 @@ static void terrain_generate(GameState* g) {
     }
 }
 
+/* Flatten peaks that are taller than DESPIKE_HEIGHT pixels and thinner than 3
+ * pixels wide. Operates on already-normalized terrain so thresholds are in
+ * screen-pixel units. A column is a "spike" when terrain[x] is at least
+ * DESPIKE_HEIGHT smaller than both terrain[x-2] and terrain[x+2], AND at most
+ * one immediate neighbor is within DESPIKE_NEAR_TOL of terrain[x] — i.e. the
+ * feature width is 1 or 2. Doesn't change min(terrain) so the bottom-of-screen
+ * guarantee from normalization is preserved (we only flatten peaks, never
+ * valleys). */
+static void terrain_despike(GameState* g) {
+    uint8_t out[SCREEN_W];
+    memcpy(out, g->terrain, SCREEN_W);
+
+    for (int x = 2; x < SCREEN_W - 2; x++) {
+        int t = (int)g->terrain[x];
+        int dl = (int)g->terrain[x - 2] - t;
+        int dr = (int)g->terrain[x + 2] - t;
+        if (dl > DESPIKE_HEIGHT && dr > DESPIKE_HEIGHT) {
+            int near = 0;
+            if (abs((int)g->terrain[x - 1] - t) <= DESPIKE_NEAR_TOL) near++;
+            if (abs((int)g->terrain[x + 1] - t) <= DESPIKE_NEAR_TOL) near++;
+            if (near <= 1) {
+                out[x] = (uint8_t)(((int)g->terrain[x - 2] + (int)g->terrain[x + 2]) / 2);
+            }
+        }
+    }
+
+    memcpy(g->terrain, out, SCREEN_W);
+}
+
 int game_pads_for_level(int level) {
     if (level <= 3)  return 5;
     if (level <= 6)  return 4;
@@ -126,19 +160,22 @@ static void pads_place(GameState* g) {
             g->terrain[px + dx] = (uint8_t)flat_y;
         }
         g->pad_x[i] = (uint8_t)px;
+        g->pad_mul[i] = DEFAULT_PAD_MUL;
     }
 }
 
 /* ----- Init -------------------------------------------------------------- */
 
-void game_init(GameState* g, int level) {
+void game_init(GameState* g, int level, int score) {
     memset(g, 0, sizeof(*g));
     g->level = level;
+    g->score = score;
     /* Seed depends on level. Mixing constants keep adjacent levels visually
      * different rather than near-identical. */
     g->rng_state = 0xA5C3F00Du ^ ((uint32_t)level * 0x9E3779B1u);
 
     terrain_generate(g);
+    terrain_despike(g);
     pads_place(g);
 
     g->x = (float)SCREEN_W / 2.0f;
@@ -153,7 +190,6 @@ void game_init(GameState* g, int level) {
     g->status = GameStatusFlying;
     g->status_time = 0.0f;
     g->elapsed = 0.0f;
-    g->score = 0;
     g->up_hold_time = 0.0f;
     g->current_thrust = 0.0f;
 }
@@ -189,14 +225,15 @@ GameAction game_input(GameState* g, const InputEvent* ev) {
         }
     }
 
-    /* On status screens, OK retries (crash) or advances (landed). */
+    /* On status screens, OK retries (crash) or advances (landed).
+     * Score carries forward across levels and across retries. */
     if (ev->type == InputTypeShort && ev->key == InputKeyOk) {
         if (g->status == GameStatusLanded) {
             int next = g->level + 1;
-            if (next > 10) next = 1;  // wrap; later: "You win!" screen
-            game_init(g, next);
+            if (next > HIGHEST_LEVEL) next = 1;  // wrap; later: "You win!" screen
+            game_init(g, next, g->score);
         } else if (g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) {
-            game_init(g, g->level);
+            game_init(g, g->level, g->score);
         }
     }
 
@@ -205,12 +242,13 @@ GameAction game_input(GameState* g, const InputEvent* ev) {
 
 /* ----- Physics ----------------------------------------------------------- */
 
-static bool on_pad(const GameState* g, int x_left, int x_right) {
+/* Returns the index of the pad that fully contains [x_left, x_right], or -1. */
+static int on_pad_idx(const GameState* g, int x_left, int x_right) {
     for (int i = 0; i < g->num_pads; i++) {
         int px = g->pad_x[i];
-        if (x_left >= px && x_right <= px + PAD_W - 1) return true;
+        if (x_left >= px && x_right <= px + PAD_W - 1) return i;
     }
-    return false;
+    return -1;
 }
 
 static void check_collision(GameState* g) {
@@ -238,12 +276,18 @@ static void check_collision(GameState* g) {
      * The `upright` check already enforces that the lander is level enough. */
     int xmin = lxi < rxi ? lxi : rxi;
     int xmax = lxi > rxi ? lxi : rxi;
-    bool on_flat = on_pad(g, xmin, xmax);
+    int pad_idx = on_pad_idx(g, xmin, xmax);
+    bool on_flat = (pad_idx >= 0);
     bool slow_enough = (fabsf(g->vy) < SAFE_VY) && (fabsf(g->vx) < SAFE_VX);
     bool upright = fabsf(g->angle) < SAFE_ANGLE;
 
     if (on_flat && slow_enough && upright) {
         g->status = GameStatusLanded;
+        /* score = fuel_left * multiplier * (HIGHEST_LEVEL - level + 1) */
+        int mult = (int)g->pad_mul[pad_idx];
+        int level_bonus = HIGHEST_LEVEL - g->level + 1;
+        if (level_bonus < 1) level_bonus = 1;  // safety if user plays beyond HIGHEST_LEVEL
+        g->score += (int)g->fuel * mult * level_bonus;
     } else {
         g->status = GameStatusCrashed;
     }
@@ -411,6 +455,10 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
     canvas_set_font(canvas, FontSecondary);
 
     char buf[16];
+
+    /* Top center: current level. */
+    snprintf(buf, sizeof(buf), "L%d", g->level);
+    canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, buf);
 
     /* Left column - AlignTop so successive lines stack predictably. */
     snprintf(buf, sizeof(buf), "S:%04d", g->score);

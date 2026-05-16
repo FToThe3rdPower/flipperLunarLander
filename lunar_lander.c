@@ -91,7 +91,7 @@ static void tick_timer_callback(void* ctx) {
 static void enter_screen(AppModel* m, Screen s) {
     m->screen = s;
     if (s == ScreenGame) {
-        game_init(&m->game, 1);
+        game_init(&m->game, 1, 0);  // fresh game: level 1, score 0
     }
 }
 
