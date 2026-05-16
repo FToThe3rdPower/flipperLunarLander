@@ -20,7 +20,6 @@ const char* const thrust_mode_desc[ThrustModeCount] = {
 /* Small lander sprite, 11 wide x 9 tall. (x,y) = left foot. */
 static void draw_menu_lander(Canvas* canvas, int x, int y) {
     canvas_draw_rbox(canvas, x + 2, y - 6, 7, 4, 1);   // body
-    canvas_draw_line(canvas, x + 5, y - 6, x + 5, y - 9); // antenna
     canvas_draw_dot(canvas, x + 5, y - 9);
     canvas_draw_line(canvas, x + 3, y - 2, x, y);      // L leg
     canvas_draw_line(canvas, x + 7, y - 2, x + 10, y); // R leg
@@ -30,10 +29,10 @@ static void draw_menu_lander(Canvas* canvas, int x, int y) {
 
 // Top title bar
 static void draw_title(Canvas* canvas) {
-    draw_menu_lander(canvas, 4, 13);
+    draw_menu_lander(canvas, 4, 7);
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str_aligned(canvas, SCREEN_W / 2 + 8, 7, AlignCenter, AlignTop, "LUNAR LANDER");
-    canvas_draw_line(canvas, 0, 17, SCREEN_W - 1, 17);
+    canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, "LUNAR LANDER");
+    canvas_draw_line(canvas, 0, 8, SCREEN_W - 1, 8);
 }
 
 // Thrust mode selector
