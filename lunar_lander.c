@@ -18,6 +18,7 @@
 #include "menu.h"
 #include "game.h"
 
+// Physics'frame' rate
 #define TICK_HZ 60
 
 typedef enum {
