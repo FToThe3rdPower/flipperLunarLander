@@ -69,6 +69,27 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             canvas_draw_str_aligned(
                 canvas, SCREEN_W / 2, 40, AlignCenter, AlignCenter, "Coming soon. Press Back.");
             break;
+        case ScreenInfo: {
+            canvas_set_font(canvas, FontPrimary);
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W / 2, 2, AlignCenter, AlignTop, "ABOUT");
+            canvas_draw_line(canvas, 0, 12, SCREEN_W - 1, 12);
+            canvas_set_font(canvas, FontSecondary);
+            /* Credit text wrapped to ~25 chars per line at FontSecondary. */
+            canvas_draw_str_aligned(canvas, SCREEN_W / 2, 16, AlignCenter, AlignTop,
+                "Claude Opus 4.7 wrote");
+            canvas_draw_str_aligned(canvas, SCREEN_W / 2, 24, AlignCenter, AlignTop,
+                "this from prompts,");
+            canvas_draw_str_aligned(canvas, SCREEN_W / 2, 32, AlignCenter, AlignTop,
+                "graphics, and tweaks by");
+            canvas_draw_str_aligned(canvas, SCREEN_W / 2, 40, AlignCenter, AlignTop,
+                "FToThe3rdPower");
+            canvas_draw_str_aligned(canvas, SCREEN_W / 2, 48, AlignCenter, AlignTop,
+                "on GitHub.");
+            canvas_draw_str_aligned(canvas, SCREEN_W / 2, SCREEN_H - 1,
+                AlignCenter, AlignBottom, "Back to return");
+            break;
+        }
     }
 
     furi_mutex_release(app->mutex);
@@ -88,17 +109,27 @@ static void tick_timer_callback(void* ctx) {
 
 /* ----- Dispatch ---------------------------------------------------------- */
 
-static void enter_screen(AppModel* m, Screen s) {
-    m->screen = s;
-    if (s == ScreenGame) {
-        game_init(&m->game, 1, 0);  // fresh game: level 1, score 0
+/* Single point of truth for screen transitions. Handles audio
+ * acquire/release on entering/leaving ScreenGame, plus game state init. */
+static void set_screen(AppModel* m, Screen new_screen) {
+    Screen old = m->screen;
+    if (old == ScreenGame && new_screen != ScreenGame) {
+        game_audio_stop();
+    }
+    m->screen = new_screen;
+    if (new_screen == ScreenGame && old != ScreenGame) {
+        game_audio_start();
+        FuelMode fm = m->menu.fuel_mode;
+        int start_fuel = fuel_mode_starting[fm];
+        game_init(&m->game, 1, 0, fm, start_fuel);  // fresh game
     }
 }
 
 static void handle_menu_action(AppModel* m, MenuAction action) {
     switch (action) {
-        case MenuActionStart:    enter_screen(m, ScreenGame); break;
-        case MenuActionTutorial: enter_screen(m, ScreenTutorial); break;
+        case MenuActionStart:    set_screen(m, ScreenGame); break;
+        case MenuActionTutorial: set_screen(m, ScreenTutorial); break;
+        case MenuActionInfo:     set_screen(m, ScreenInfo); break;
         case MenuActionExit:     m->should_exit = true; break;
         case MenuActionNone:     break;
     }
@@ -120,13 +151,14 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                 game_apply_tap_impulse(&m->game);
             }
             GameAction a = game_input(&m->game, ev);
-            if (a == GameActionExitToMenu) m->screen = ScreenMenu;
+            if (a == GameActionExitToMenu) set_screen(m, ScreenMenu);
             break;
         }
         case ScreenTutorial:
+        case ScreenInfo:
             if (ev->key == InputKeyBack &&
                 (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
-                m->screen = ScreenMenu;
+                set_screen(m, ScreenMenu);
             }
             break;
     }
@@ -135,6 +167,7 @@ static void handle_input_event(App* app, const InputEvent* ev) {
 static void handle_tick(App* app, float dt) {
     if (app->model.screen == ScreenGame) {
         game_tick(&app->model.game, app->model.menu.thrust_mode, dt);
+        game_audio_update(&app->model.game, app->model.menu.thrust_mode);
     }
 }
 
@@ -191,6 +224,9 @@ int32_t lunar_lander_app(void* p) {
 
     furi_timer_stop(app->tick_timer);
     furi_timer_free(app->tick_timer);
+    /* Belt-and-suspenders: if somehow we exit while still in-game, release
+     * the speaker and turn off vibration so we don't leave it stuck. */
+    game_audio_stop();
     gui_remove_view_port(app->gui, app->view_port);
     view_port_free(app->view_port);
     furi_record_close(RECORD_GUI);

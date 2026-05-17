@@ -181,10 +181,11 @@ static void pads_place(GameState* g) {
 
 /* ----- Init -------------------------------------------------------------- */
 
-void game_init(GameState* g, int level, int score) {
+void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int starting_fuel) {
     memset(g, 0, sizeof(*g));
     g->level = level;
     g->score = score;
+    g->fuel_mode = fuel_mode;
     /* Seed depends on level. Mixing constants keep adjacent levels visually
      * different rather than near-identical. */
     g->rng_state = 0xA5C3F00Du ^ ((uint32_t)level * 0x9E3779B1u);
@@ -201,7 +202,8 @@ void game_init(GameState* g, int level, int score) {
     g->vx = (float)rand_range(g, -5, 5);
     g->vy = 0.0f;
     g->angle = 0.0f;
-    g->fuel = START_FUEL;
+    g->fuel = (float)starting_fuel;
+    g->fuel_at_level_start = (float)starting_fuel;
     g->status = GameStatusFlying;
     g->status_time = 0.0f;
     g->elapsed = 0.0f;
@@ -241,14 +243,27 @@ GameAction game_input(GameState* g, const InputEvent* ev) {
     }
 
     /* On status screens, OK retries (crash) or advances (landed).
-     * Score carries forward across levels and across retries. */
+     * Score carries forward across levels and across retries.
+     * Fuel behavior depends on fuel_mode:
+     *   - FuelModeFull: every level starts with START_FUEL (classic).
+     *   - No-refuel:    advance carries remaining fuel forward;
+     *                   retry rewinds to fuel_at_level_start. */
     if (ev->type == InputTypeShort && ev->key == InputKeyOk) {
         if (g->status == GameStatusLanded) {
             int next = g->level + 1;
             if (next > HIGHEST_LEVEL) next = 1;  // wrap; later: "You win!" screen
-            game_init(g, next, g->score);
+            /* Capture campaign state before memset wipes it. */
+            FuelMode mode = g->fuel_mode;
+            int score = g->score;
+            int next_fuel = (mode == FuelModeFull) ? (int)START_FUEL : (int)g->fuel;
+            game_init(g, next, score, mode, next_fuel);
         } else if (g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) {
-            game_init(g, g->level, g->score);
+            FuelMode mode = g->fuel_mode;
+            int score = g->score;
+            int level = g->level;
+            int retry_fuel =
+                (mode == FuelModeFull) ? (int)START_FUEL : (int)g->fuel_at_level_start;
+            game_init(g, level, score, mode, retry_fuel);
         }
     }
 
@@ -454,7 +469,7 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
     snprintf(buf, sizeof(buf), "T:%04d", (int)g->elapsed);
     canvas_draw_str_aligned(canvas, 0, 8, AlignLeft, AlignTop, buf);
 
-    snprintf(buf, sizeof(buf), "F:%03d", (int)g->fuel);
+    snprintf(buf, sizeof(buf), "F:%04d", (int)g->fuel);
     canvas_draw_str_aligned(canvas, 0, 16, AlignLeft, AlignTop, buf);
 
     /* Right column - %+4d keeps width stable as values change sign / magnitude. */
