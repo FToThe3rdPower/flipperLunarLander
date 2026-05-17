@@ -1,21 +1,24 @@
 #include "menu.h"
+#include "lander_sprite.h"
 #include <gui/canvas.h>
 
-// List of available thrust modes - due to a lack of a joystick, Claude had 2 addition suggestions to make the D-pad work for our port
+/* ----- Mode tables -------------------------------------------------------
+ * Order here must match the enums in lunar_lander.h. The Tap-first ordering
+ * for thrust was a deliberate choice (easiest mode first); fuel modes go
+ * easiest-to-hardest top to bottom. */
+
 const char* const thrust_mode_label[ThrustModeCount] = {
     "Tap Impulse",
     "Binary",
     "Ramp",
 };
 
-// Descriptions to go with the thrust modes to explain how they work a lil more
 const char* const thrust_mode_desc[ThrustModeCount] = {
     "Tap UP = one burst",
     "Hold UP = full thrust",
     "Hold UP, thrust ramps up",
 };
 
-// List of available fuel modes
 const char* const fuel_mode_label[FuelModeCount] = {
     "Full fuel each lvl",
     "No refuel, Easy: 500",
@@ -23,29 +26,35 @@ const char* const fuel_mode_label[FuelModeCount] = {
     "No refuel, Hard: 200",
 };
 
+const char* const fuel_mode_desc[FuelModeCount] = {
+    "Refills to 100 per level",
+    "500 total, no top-ups",
+    "350 total, no top-ups",
+    "200 total, no top-ups",
+};
+
+const int fuel_mode_starting[FuelModeCount] = {
+    100,
+    500,
+    350,
+    200,
+};
+
 /* ----- Drawing ----------------------------------------------------------- */
 
-/* Small lander sprite, (x,y) = left foot. */
-static void draw_menu_lander(Canvas* canvas, int x, int y) {
-    canvas_draw_rbox(canvas, x + 2, y - 6, 7, 4, 1);   // body
-    canvas_draw_dot(canvas, x + 5, y - 9);
-    canvas_draw_line(canvas, x + 3, y - 2, x, y);      // L leg
-    canvas_draw_line(canvas, x + 7, y - 2, x + 10, y); // R leg
-    canvas_draw_line(canvas, x - 1, y, x + 1, y);      // L foot
-    canvas_draw_line(canvas, x + 9, y, x + 11, y);     // R foot
-}
-
-// Top title bar
+/* Title bar: lander on the left, "LUNAR LANDER" centered, separator at y=10.
+ * Line moved from y=8 to y=10 so the new shared sprite (which is 9 px tall
+ * including the antenna) fits without clipping. */
 static void draw_title(Canvas* canvas) {
-    draw_menu_lander(canvas, 4, 7);
+    lander_draw_static(canvas, 8, 5);
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, "LUNAR LANDER");
-    canvas_draw_line(canvas, 0, 8, SCREEN_W - 1, 8);
+    canvas_draw_line(canvas, 0, 10, SCREEN_W - 1, 10);
 }
 
-// Thrust mode selector
-static void draw_thrust_row(Canvas* canvas, const MenuState* m, int y) {
-    bool focused = (m->row == MenuRowThrust);
+/* Selector row factored so thrust and fuel share the same chrome.
+ * `label` is what shows in the middle; `focused` controls the inverted look. */
+static void draw_selector_row(Canvas* canvas, int y, const char* label, bool focused) {
     if (focused) {
         canvas_draw_rbox(canvas, 2, y, SCREEN_W - 4, 12, 2);
         canvas_set_color(canvas, ColorWhite);
@@ -55,24 +64,21 @@ static void draw_thrust_row(Canvas* canvas, const MenuState* m, int y) {
     canvas_set_font(canvas, FontSecondary);
     canvas_draw_str_aligned(canvas, 7, y + 6, AlignLeft, AlignCenter, "<");
     canvas_draw_str_aligned(canvas, SCREEN_W - 7, y + 6, AlignRight, AlignCenter, ">");
-    canvas_draw_str_aligned(
-        canvas, SCREEN_W / 2, y + 6, AlignCenter, AlignCenter,
-        thrust_mode_label[m->thrust_mode]);
+    canvas_draw_str_aligned(canvas, SCREEN_W / 2, y + 6, AlignCenter, AlignCenter, label);
     canvas_set_color(canvas, ColorBlack);
 }
 
-// Thrust mode explanation
-static void draw_thrust_desc(Canvas* canvas, const MenuState* m, int y) {
+/* Single description line shown beneath the selectors. Whichever row is
+ * focused, its description shows. Buttons row → no description. */
+static void draw_focused_desc(Canvas* canvas, const MenuState* m, int y) {
+    const char* desc = NULL;
+    if (m->row == MenuRowThrust)      desc = thrust_mode_desc[m->thrust_mode];
+    else if (m->row == MenuRowFuel)   desc = fuel_mode_desc[m->fuel_mode];
+    if (!desc) return;
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str_aligned(
-        canvas, SCREEN_W / 2, y, AlignCenter, AlignTop,
-        thrust_mode_desc[m->thrust_mode]);
+    canvas_draw_str_aligned(canvas, SCREEN_W / 2, y, AlignCenter, AlignTop, desc);
 }
 
-// Fuel mode selector
-
-
-// Button draw-er
 static void draw_button(
     Canvas* canvas, int x, int y, int w, int h, const char* label, bool selected) {
     if (selected) {
@@ -86,31 +92,39 @@ static void draw_button(
     canvas_set_color(canvas, ColorBlack);
 }
 
-// Put the Start and Tutorial buttons on the bottom row
 static void draw_button_row(Canvas* canvas, const MenuState* m, int y) {
     bool row_focused = (m->row == MenuRowButtons);
     const int btn_w = 56, btn_h = 12, gap = 4;
     int x0 = (SCREEN_W - (btn_w * 2 + gap)) / 2;
-    draw_button(canvas, x0, y, btn_w, btn_h, "START",
+    draw_button(canvas, x0,                    y, btn_w, btn_h, "START",
                 row_focused && m->btn == MenuBtnStart);
-    draw_button(canvas, x0 + btn_w + gap, y, btn_w, btn_h, "TUTORIAL",
+    draw_button(canvas, x0 + btn_w + gap,      y, btn_w, btn_h, "TUTORIAL",
                 row_focused && m->btn == MenuBtnTutorial);
 }
 
-// Draw the menu on the screen
 void menu_draw(Canvas* canvas, const MenuState* m) {
     draw_title(canvas);
-    draw_thrust_row(canvas, m, 20);
-    draw_thrust_desc(canvas, m, 34);
-    draw_button_row(canvas, m, 50);
+    /* Layout in screen rows:
+     *   0..10   title bar + separator
+     *   12..23  thrust selector
+     *   25..36  fuel selector
+     *   38..45  description for focused row (blank when on buttons)
+     *   48..59  Start / Tutorial buttons
+     *   60..63  slack
+     */
+    draw_selector_row(canvas, 12, thrust_mode_label[m->thrust_mode], m->row == MenuRowThrust);
+    draw_selector_row(canvas, 25, fuel_mode_label[m->fuel_mode],     m->row == MenuRowFuel);
+    draw_focused_desc(canvas, m, 38);
+    draw_button_row(canvas, m, 48);
 }
 
 /* ----- State & input ----------------------------------------------------- */
 
 void menu_init(MenuState* m) {
-    m->row = MenuRowThrust;            //default focus on launch
+    m->row = MenuRowThrust;
     m->btn = MenuBtnStart;
     m->thrust_mode = ThrustModeBinary;
+    m->fuel_mode = FuelModeFull;
 }
 
 MenuAction menu_input(MenuState* m, const InputEvent* ev) {
@@ -126,14 +140,18 @@ MenuAction menu_input(MenuState* m, const InputEvent* ev) {
         case InputKeyLeft:
             if (m->row == MenuRowThrust) {
                 m->thrust_mode = (m->thrust_mode + ThrustModeCount - 1) % ThrustModeCount;
-            } else if (m->btn > 0) {
+            } else if (m->row == MenuRowFuel) {
+                m->fuel_mode = (m->fuel_mode + FuelModeCount - 1) % FuelModeCount;
+            } else if (m->row == MenuRowButtons && m->btn > 0) {
                 m->btn--;
             }
             break;
         case InputKeyRight:
             if (m->row == MenuRowThrust) {
                 m->thrust_mode = (m->thrust_mode + 1) % ThrustModeCount;
-            } else if (m->btn < MenuBtnCount - 1) {
+            } else if (m->row == MenuRowFuel) {
+                m->fuel_mode = (m->fuel_mode + 1) % FuelModeCount;
+            } else if (m->row == MenuRowButtons && m->btn < MenuBtnCount - 1) {
                 m->btn++;
             }
             break;
