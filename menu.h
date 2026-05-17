@@ -6,6 +6,7 @@
 
 typedef enum {
     MenuRowThrust = 0,
+    MenuRowFuel,
     MenuRowButtons,
     MenuRowCount,
 } MenuRow;
@@ -20,13 +21,15 @@ typedef enum {
     MenuActionNone = 0,
     MenuActionStart,
     MenuActionTutorial,
+    MenuActionInfo,     // reserved for future title-bar click
     MenuActionExit,
 } MenuAction;
 
 typedef struct {
-    MenuRow row;
-    MenuBtn btn;
-    ThrustMode thrust_mode;
+    MenuRow     row;
+    MenuBtn     btn;
+    ThrustMode  thrust_mode;
+    FuelMode    fuel_mode;
 } MenuState;
 
 void menu_init(MenuState* m);
