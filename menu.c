@@ -115,7 +115,7 @@ void menu_draw(Canvas* canvas, const MenuState* m) {
     draw_selector_row(canvas, 12, thrust_mode_label[m->thrust_mode], m->row == MenuRowThrust);
     draw_selector_row(canvas, 25, fuel_mode_label[m->fuel_mode],     m->row == MenuRowFuel);
     draw_focused_desc(canvas, m, 38);
-    draw_button_row(canvas, m, 48);
+    draw_button_row(canvas, m, 52); //was 48
 }
 
 /* ----- State & input ----------------------------------------------------- */
