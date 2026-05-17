@@ -27,7 +27,7 @@ const char* const fuel_mode_label[FuelModeCount] = {
 };
 
 const char* const fuel_mode_desc[FuelModeCount] = {
-    "Refills to 100 per level",
+    "Refills to 100 per lvl",
     "500 total, no top-ups",
     "350 total, no top-ups",
     "200 total, no top-ups",
@@ -110,7 +110,7 @@ void menu_draw(Canvas* canvas, const MenuState* m) {
      *   25..36  fuel selector
      *   38..45  description for focused row (blank when on buttons)
      *   48..59  Start / Tutorial buttons
-     *   60..63  slack
+     *   60..63  empty
      */
     draw_selector_row(canvas, 12, thrust_mode_label[m->thrust_mode], m->row == MenuRowThrust);
     draw_selector_row(canvas, 25, fuel_mode_label[m->fuel_mode],     m->row == MenuRowFuel);
@@ -121,10 +121,11 @@ void menu_draw(Canvas* canvas, const MenuState* m) {
 /* ----- State & input ----------------------------------------------------- */
 
 void menu_init(MenuState* m) {
-    m->row = MenuRowThrust;
-    m->btn = MenuBtnStart;
-    m->thrust_mode = ThrustModeBinary;
+    m->thrust_mode = ThrustModeTapImpulse;
     m->fuel_mode = FuelModeFull;
+    m->btn = MenuBtnStart;
+    m->row = MenuRowThrust;
+
 }
 
 MenuAction menu_input(MenuState* m, const InputEvent* ev) {
