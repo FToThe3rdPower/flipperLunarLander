@@ -1,7 +1,7 @@
 #include "menu.h"
 #include <gui/canvas.h>
 
-// List of thrust modes - due to a lack of a joystick, Claude had 2 addition suggestions to make the D-pad work for our port
+// List of available thrust modes - due to a lack of a joystick, Claude had 2 addition suggestions to make the D-pad work for our port
 const char* const thrust_mode_label[ThrustModeCount] = {
     "Tap Impulse",
     "Binary",
@@ -15,7 +15,7 @@ const char* const thrust_mode_desc[ThrustModeCount] = {
     "Hold UP, thrust ramps up",
 };
 
-// List of fuel modes
+// List of available fuel modes
 const char* const fuel_mode_label[FuelModeCount] = {
     "Full fuel each lvl",
     "No refuel, Easy: 500",
