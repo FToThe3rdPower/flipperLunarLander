@@ -1,17 +1,20 @@
 # Lunar Lander for Flipper Zero
 
-Clauded 'from-scratch,' inspired by 1979 Atari arcade game.
+A from-scratch port of the 1979 Atari arcade game.
 
 ## Status
-- [x] Menu screen — thrust-mode picker, default focus on selector, in-line descriptions
+- [x] Menu screen — thrust-mode picker, default focus on selector, in-line descriptions, clickable title opens Info screen
 - [x] Game screen — physics, procedural terrain (seeded per level), rotated lander, thrust flame scaled by current thrust, HUD, crash/landing detection, level advance / retry
 - [x] Terrain quality — normalized to span full vertical range; spike removal (peaks <3 px wide and >7 px tall are flattened)
 - [x] Lander starts centered with random ±5 px/sec horizontal velocity (deterministic per level seed)
 - [x] Level number shown at top center of HUD ("L1" through "L10")
 - [x] Scoring on successful landing: `fuel_left × pad_multiplier × (HIGHEST_LEVEL − level + 1)`
+- [x] Sound feedback — continuous thrust tone (pitch scales with thrust level), tap impulse blip, landing chime, crash rumble
+- [x] Vibration on thrust and crashes (no vibration on successful landing)
+- [x] Crash flash — screen inverts at 10 Hz for 0.5 sec before the CRASHED banner appears
+- [x] Info screen with credit text (reached via OK on the menu title bar)
 - [ ] Per-pad varied multipliers (all currently default to 2x)
 - [ ] Tutorial screen (placeholder)
-- [ ] Sound
 - [ ] Persisted high score
 - [ ] "Game complete" screen when finishing HIGHEST_LEVEL (currently wraps to level 1)
 - [ ] Tuning pass on physics constants
@@ -52,7 +55,8 @@ implemented yet — every pad just shows "2x" as a placeholder.
 - `lunar_lander.c` — main loop, event dispatch, 60 Hz tick timer
 - `lunar_lander.h` — shared types (ThrustMode, Screen)
 - `menu.c` / `menu.h` — title screen
-- `game.c` / `game.h` — physics, terrain, drawing
+- `game.c` / `game.h` — physics, terrain, audio, drawing
+- `lander_sprite.c` / `lander_sprite.h` — shared lander silhouette (static + rotated)
 - `application.fam` — Flipper app manifest
 
 ## Tunables (in `game.c`)
@@ -61,10 +65,9 @@ rate, safe-landing thresholds, etc. They are pure guesses for feel — expect
 to need a tuning pass.
 
 ## Known issues / TODO
-- No screen flash or explosion animation on crash
-- No animation/feedback for tap-impulse firing
 - Lander rotation uses live `sinf/cosf` — fine for one lander at 60 Hz, but a
   16-step lookup table would be cheaper if we ever add more entities
-- Score stays at 0 because the scoring system isn't wired up
+- Direct-HAL audio bypasses the system mute setting; switch to the
+  notification service if respecting Settings → Notifications matters
 - "Out of fuel" status exists in the enum but the game doesn't trigger it yet
   (collision handles all end states for now)

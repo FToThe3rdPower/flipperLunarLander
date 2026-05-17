@@ -1,16 +1,19 @@
 #include "game.h"
+#include "lander_sprite.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <gui/canvas.h>
+#include <furi_hal_speaker.h>
+#include <furi_hal_vibro.h>
 
 /* ----- Tunables (all in pixels & seconds) -------------------------------- */
 
-#define LANDER_HALF_W      3.0f    // body half-width
-#define LANDER_FOOT_DX     3.0f    // foot offset from center (x)
-#define LANDER_FOOT_DY     3.0f    // foot offset from center (y, below body)
-#define LANDER_BODY_TOP    -3.0f   // y of body top (above center)
-#define LANDER_BODY_BOT    1.0f    // y of body bottom
+/* NOTE: lander geometry (LANDER_HALF_W, LANDER_BODY_TOP, LANDER_BODY_BOT,
+ * LANDER_FOOT_DX, LANDER_FOOT_DY, LANDER_ANTENNA_TOP) lives in
+ * lander_sprite.h — single source of truth shared with the menu. The
+ * collision math below uses LANDER_FOOT_DX / LANDER_FOOT_DY from that
+ * header. */
 
 #define PAD_W              16      // 2x lander total width
 #define TERRAIN_TOP_Y      26      // highest peak (smallest y) after normalization
@@ -35,6 +38,18 @@
 #define SAFE_ANGLE         0.22f   // ~12.6 degrees
 
 #define START_FUEL         100.0f
+
+/* ----- Audio / feedback tunables ----------------------------------------- */
+#define AUDIO_VOLUME       1.0f    // 0.0 to 1.0
+#define THRUST_FREQ_MIN    70      // Hz at near-zero thrust
+#define THRUST_FREQ_MAX    140     // Hz at full thrust
+#define SFX_LAND_FREQ      440     // Hz
+#define SFX_LAND_DUR       0.25f   // sec
+#define SFX_CRASH_FREQ     60      // Hz
+#define SFX_CRASH_DUR      0.40f   // sec
+#define SFX_TAP_FREQ       220     // Hz
+#define SFX_TAP_DUR        0.06f   // sec
+#define FLASH_DURATION     0.5f    // sec - crash inversion flashing
 
 /* ----- RNG (xorshift32, seeded from level) ------------------------------- */
 
@@ -288,8 +303,14 @@ static void check_collision(GameState* g) {
         int level_bonus = HIGHEST_LEVEL - g->level + 1;
         if (level_bonus < 1) level_bonus = 1;  // safety if user plays beyond HIGHEST_LEVEL
         g->score += (int)g->fuel * mult * level_bonus;
+        g->sfx_remaining = SFX_LAND_DUR;
+        g->sfx_freq = SFX_LAND_FREQ;
+        g->sfx_vibrate = false;
     } else {
         g->status = GameStatusCrashed;
+        g->sfx_remaining = SFX_CRASH_DUR;
+        g->sfx_freq = SFX_CRASH_FREQ;
+        g->sfx_vibrate = true;
     }
     g->status_time = 0.0f;
     g->vx = g->vy = 0.0f;
@@ -297,6 +318,12 @@ static void check_collision(GameState* g) {
 
 void game_tick(GameState* g, ThrustMode mode, float dt) {
     g->status_time += dt;
+
+    /* SFX timer runs regardless of game status so crash/land SFX can play out. */
+    if (g->sfx_remaining > 0.0f) {
+        g->sfx_remaining -= dt;
+        if (g->sfx_remaining < 0.0f) g->sfx_remaining = 0.0f;
+    }
 
     if (g->status != GameStatusFlying) {
         return;
@@ -375,6 +402,9 @@ void game_apply_tap_impulse(GameState* g) {
     g->vy += -cosf(g->angle) * IMPULSE_DV;
     g->fuel -= IMPULSE_FUEL;
     if (g->fuel < 0.0f) g->fuel = 0.0f;
+    g->sfx_remaining = SFX_TAP_DUR;
+    g->sfx_freq = SFX_TAP_FREQ;
+    g->sfx_vibrate = true;
 }
 
 /* ----- Drawing ----------------------------------------------------------- */
@@ -397,58 +427,15 @@ static void draw_terrain(Canvas* canvas, const GameState* g) {
     }
 }
 
-/* Lander geometry in local space, in screen-y-down convention.
- * Body triangle: (0, BODY_TOP), (-LANDER_HALF_W, BODY_BOT), (+LANDER_HALF_W, BODY_BOT)
- * Legs:         (-LANDER_HALF_W+0.5, BODY_BOT) -> (-FOOT_DX, FOOT_DY)
- *                (+LANDER_HALF_W-0.5, BODY_BOT) -> (+FOOT_DX, FOOT_DY)
- */
+/* Thin wrapper around the shared sprite. Flame draws when current_thrust > 0
+ * AND fuel remains AND we're still flying — gated here, not inside the
+ * sprite, so the sprite stays a pure renderer. */
 static void draw_lander(Canvas* canvas, const GameState* g) {
-    float s = sinf(g->angle);
-    float c = cosf(g->angle);
-
-#define R_X(lx, ly) ((int)(g->x + (lx) * c - (ly) * s))
-#define R_Y(lx, ly) ((int)(g->y + (lx) * s + (ly) * c))
-
-    /* Body triangle */
-    canvas_draw_line(canvas,
-        R_X(-LANDER_HALF_W, LANDER_BODY_BOT), R_Y(-LANDER_HALF_W, LANDER_BODY_BOT),
-        R_X(LANDER_HALF_W,  LANDER_BODY_BOT), R_Y( LANDER_HALF_W, LANDER_BODY_BOT));
-    canvas_draw_line(canvas,
-        R_X(-LANDER_HALF_W, LANDER_BODY_BOT), R_Y(-LANDER_HALF_W, LANDER_BODY_BOT),
-        R_X(0,              LANDER_BODY_TOP), R_Y(0,              LANDER_BODY_TOP));
-    canvas_draw_line(canvas,
-        R_X(0,              LANDER_BODY_TOP), R_Y(0,              LANDER_BODY_TOP),
-        R_X(LANDER_HALF_W,  LANDER_BODY_BOT), R_Y( LANDER_HALF_W, LANDER_BODY_BOT));
-
-    /* Legs */
-    canvas_draw_line(canvas,
-        R_X(-LANDER_HALF_W + 0.5f, LANDER_BODY_BOT),
-        R_Y(-LANDER_HALF_W + 0.5f, LANDER_BODY_BOT),
-        R_X(-LANDER_FOOT_DX, LANDER_FOOT_DY),
-        R_Y(-LANDER_FOOT_DX, LANDER_FOOT_DY));
-    canvas_draw_line(canvas,
-        R_X( LANDER_HALF_W - 0.5f, LANDER_BODY_BOT),
-        R_Y( LANDER_HALF_W - 0.5f, LANDER_BODY_BOT),
-        R_X( LANDER_FOOT_DX, LANDER_FOOT_DY),
-        R_Y( LANDER_FOOT_DX, LANDER_FOOT_DY));
-
-    /* Thrust flame (length scales with current_thrust). */
-    if (g->current_thrust > 0.05f && g->fuel > 0.0f && g->status == GameStatusFlying) {
-        float flame_len = 2.0f + 4.0f * g->current_thrust;
-        canvas_draw_line(canvas,
-            R_X(-1.5f, LANDER_BODY_BOT),
-            R_Y(-1.5f, LANDER_BODY_BOT),
-            R_X(0, LANDER_BODY_BOT + flame_len),
-            R_Y(0, LANDER_BODY_BOT + flame_len));
-        canvas_draw_line(canvas,
-            R_X( 1.5f, LANDER_BODY_BOT),
-            R_Y( 1.5f, LANDER_BODY_BOT),
-            R_X(0, LANDER_BODY_BOT + flame_len),
-            R_Y(0, LANDER_BODY_BOT + flame_len));
+    float thrust_for_draw = 0.0f;
+    if (g->fuel > 0.0f && g->status == GameStatusFlying) {
+        thrust_for_draw = g->current_thrust;
     }
-
-#undef R_X
-#undef R_Y
+    lander_draw_rotated(canvas, g->x, g->y, g->angle, thrust_for_draw);
 }
 
 static void draw_hud(Canvas* canvas, const GameState* g) {
@@ -487,6 +474,9 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
 
 static void draw_status_banner(Canvas* canvas, const GameState* g) {
     if (g->status == GameStatusFlying) return;
+    /* Hold off the banner while the crash flash is still going. */
+    if ((g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) &&
+        g->status_time < FLASH_DURATION) return;
 
     const char* line1 = "";
     const char* line2 = "";
@@ -522,6 +512,95 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
 void game_draw(Canvas* canvas, const GameState* g) {
     draw_terrain(canvas, g);
     draw_lander(canvas, g);
+
+    /* Crash flash: XOR-invert the scene (terrain + lander) on alternating
+     * 100ms phases for FLASH_DURATION. HUD draws on top unaffected so the
+     * player can still read what's going on. */
+    if ((g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) &&
+        g->status_time < FLASH_DURATION) {
+        int phase = (int)(g->status_time * 10.0f) % 2;
+        if (phase == 1) {
+            canvas_set_color(canvas, ColorXOR);
+            canvas_draw_box(canvas, 0, 0, SCREEN_W, SCREEN_H);
+            canvas_set_color(canvas, ColorBlack);
+        }
+    }
+
     draw_hud(canvas, g);
     draw_status_banner(canvas, g);
+}
+
+/* ----- Audio + vibration -------------------------------------------------
+ * The speaker is acquired when entering the game screen and released on
+ * leaving. While acquired, we set its frequency once per tick based on game
+ * state. furi_hal_speaker_start() with a new freq while already playing
+ * appears to smoothly change pitch on Flipper hardware — I haven't seen
+ * clicking during ramp-mode sweeps, but tell me if you hear it.
+ *
+ * Vibration is on during continuous thrust (Binary/Ramp) and pulsed for
+ * tap impulse and crashes. Landing intentionally has sound only.
+ */
+
+static bool      audio_acquired = false;
+static uint16_t  audio_current_freq = 0;   // 0 = silent
+static bool      audio_vibrating = false;
+
+void game_audio_start(void) {
+    if (audio_acquired) return;
+    if (furi_hal_speaker_acquire(100)) {  // 100ms timeout; if taken, run silent
+        audio_acquired = true;
+    }
+    audio_current_freq = 0;
+    audio_vibrating = false;
+}
+
+void game_audio_stop(void) {
+    if (audio_acquired) {
+        furi_hal_speaker_stop();
+        furi_hal_speaker_release();
+        audio_acquired = false;
+    }
+    audio_current_freq = 0;
+    if (audio_vibrating) {
+        furi_hal_vibro_on(false);
+        audio_vibrating = false;
+    }
+}
+
+static void audio_set_freq(uint16_t freq) {
+    if (!audio_acquired) return;
+    if (freq == audio_current_freq) return;
+    if (freq == 0) {
+        furi_hal_speaker_stop();
+    } else {
+        furi_hal_speaker_start((float)freq, AUDIO_VOLUME);
+    }
+    audio_current_freq = freq;
+}
+
+static void audio_set_vibro(bool on) {
+    if (audio_vibrating == on) return;
+    furi_hal_vibro_on(on);
+    audio_vibrating = on;
+}
+
+void game_audio_update(const GameState* g, ThrustMode mode) {
+    bool continuous_thrust = (mode == ThrustModeBinary || mode == ThrustModeRamp);
+    uint16_t target_freq = 0;
+    bool target_vibro = false;
+
+    if (g->sfx_remaining > 0.0f) {
+        target_freq = g->sfx_freq;
+        target_vibro = g->sfx_vibrate;
+    } else if (continuous_thrust &&
+               g->current_thrust > 0.05f &&
+               g->fuel > 0.0f &&
+               g->status == GameStatusFlying) {
+        target_freq = (uint16_t)(THRUST_FREQ_MIN +
+                                 g->current_thrust * (THRUST_FREQ_MAX - THRUST_FREQ_MIN));
+        target_vibro = true;
+    }
+
+    audio_set_freq(target_freq);
+    audio_set_vibro(target_vibro);
 }

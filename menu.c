@@ -15,9 +15,17 @@ const char* const thrust_mode_desc[ThrustModeCount] = {
     "Hold UP, thrust ramps up",
 };
 
+// List of fuel modes
+const char* const fuel_mode_label[FuelModeCount] = {
+    "Full fuel each lvl",
+    "No refuel, Easy: 500",
+    "No refuel, Med: 350",
+    "No refuel, Hard: 200",
+};
+
 /* ----- Drawing ----------------------------------------------------------- */
 
-/* Small lander sprite, 11 wide x 9 tall. (x,y) = left foot. */
+/* Small lander sprite, (x,y) = left foot. */
 static void draw_menu_lander(Canvas* canvas, int x, int y) {
     canvas_draw_rbox(canvas, x + 2, y - 6, 7, 4, 1);   // body
     canvas_draw_dot(canvas, x + 5, y - 9);
@@ -53,13 +61,16 @@ static void draw_thrust_row(Canvas* canvas, const MenuState* m, int y) {
     canvas_set_color(canvas, ColorBlack);
 }
 
-// Thurst mode explanation
+// Thrust mode explanation
 static void draw_thrust_desc(Canvas* canvas, const MenuState* m, int y) {
     canvas_set_font(canvas, FontSecondary);
     canvas_draw_str_aligned(
         canvas, SCREEN_W / 2, y, AlignCenter, AlignTop,
         thrust_mode_desc[m->thrust_mode]);
 }
+
+// Fuel mode selector
+
 
 // Button draw-er
 static void draw_button(
