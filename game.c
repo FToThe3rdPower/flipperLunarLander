@@ -49,7 +49,7 @@
 #define SFX_CRASH_DUR      0.50f   // sec
 #define SFX_TAP_FREQ       220     // Hz
 #define SFX_TAP_DUR        0.06f   // sec
-#define FLASH_DURATION     1.5f    // sec - crash inversion flashing (was 0.5s)
+#define FLASH_DURATION     1.0f    // sec - crash inversion flashing (was 0.5s)
 
 /* ----- RNG (xorshift32, seeded from level) ------------------------------- */
 
