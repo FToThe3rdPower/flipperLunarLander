@@ -28,7 +28,7 @@
 #define THRUST_MAX         18.0f   // pixels/sec^2 along lander up-axis at full thrust
 #define IMPULSE_DV         5.0f    // velocity change per tap (TapImpulse mode)
 #define IMPULSE_FUEL       2.5f
-#define RAMP_TIME          0.9f    // seconds from 0 -> full thrust in Ramp mode
+#define RAMP_TIME          0.7f    // seconds from 0 -> full thrust in Ramp mode was 0.7
 #define FUEL_BURN_RATE     12.0f   // units/sec at full thrust
 #define ROT_RATE           1.8f    // radians/sec while Left/Right held
 #define WRAP_X             1       // wrap horizontally (classic)
@@ -41,15 +41,15 @@
 
 /* ----- Audio / feedback tunables ----------------------------------------- */
 #define AUDIO_VOLUME       1.0f    // 0.0 to 1.0
-#define THRUST_FREQ_MIN    70      // Hz at near-zero thrust
-#define THRUST_FREQ_MAX    140     // Hz at full thrust
+#define THRUST_FREQ_MIN    220      // Hz at near-zero thrust
+#define THRUST_FREQ_MAX    440     // Hz at full thrust
 #define SFX_LAND_FREQ      440     // Hz
 #define SFX_LAND_DUR       0.25f   // sec
-#define SFX_CRASH_FREQ     60      // Hz
-#define SFX_CRASH_DUR      0.40f   // sec
+#define SFX_CRASH_FREQ     100      // Hz
+#define SFX_CRASH_DUR      0.50f   // sec
 #define SFX_TAP_FREQ       220     // Hz
 #define SFX_TAP_DUR        0.06f   // sec
-#define FLASH_DURATION     0.5f    // sec - crash inversion flashing
+#define FLASH_DURATION     1.5f    // sec - crash inversion flashing (was 0.5s)
 
 /* ----- RNG (xorshift32, seeded from level) ------------------------------- */
 
