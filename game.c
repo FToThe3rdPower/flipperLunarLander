@@ -459,7 +459,7 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
     char buf[16];
 
     /* Top center: current level. */
-    snprintf(buf, sizeof(buf), "L%d", g->level);
+    snprintf(buf, sizeof(buf), "L     %d", g->level);
     canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, buf);
 
     /* Left column - AlignTop so successive lines stack predictably. */
