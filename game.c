@@ -477,7 +477,7 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
     int alt = (int)((float)g->terrain[xi] - g->y);
     if (alt < 0) alt = 0;
 
-    snprintf(buf, sizeof(buf), "A:%3d", alt);
+    snprintf(buf, sizeof(buf), "Alt:%3d", alt);
     canvas_draw_str_aligned(canvas, SCREEN_W, 0, AlignRight, AlignTop, buf);
 
     snprintf(buf, sizeof(buf), "Vx:%+4d", (int)g->vx);
