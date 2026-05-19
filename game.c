@@ -49,7 +49,7 @@
 #define SFX_CRASH_DUR      0.50f   // sec
 #define SFX_TAP_FREQ       220     // Hz
 #define SFX_TAP_DUR        0.06f   // sec
-#define FLASH_DURATION     1.0f    // sec - crash inversion flashing (was 0.5s)
+#define FLASH_DURATION     1.6f    // sec - crash inversion flashing
 
 /* ----- RNG (xorshift32, seeded from level) ------------------------------- */
 
@@ -479,9 +479,15 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
 
     char buf[16];
 
-    /* Top center: current level. */
-    snprintf(buf, sizeof(buf), "L     %d", g->level);
-    canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, buf);
+    /* Top center: current level. Hidden while the lander is still high enough
+     * to visually overlap with the top text row — appears once the lander
+     * has fallen below the bottom of the top line of HUD text (~y=7).
+     * Body top is at g->y + LANDER_BODY_TOP (=g->y - 3); the +1 margin keeps
+     * it from popping in the moment the body grazes the text line. */
+    if (g->y > 11.0f) {
+        snprintf(buf, sizeof(buf), "L%d", g->level);
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, buf);
+    }
 
     /* Left column - AlignTop so successive lines stack predictably. */
     snprintf(buf, sizeof(buf), "S:%04d", g->score);
@@ -555,7 +561,7 @@ void game_draw(Canvas* canvas, const GameState* g) {
      * top unaffected so the player can still read what's going on. */
     if ((g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) &&
         g->status_time < FLASH_DURATION) {
-        const float FLASH_PHASE_HZ = 5.0f;
+        const float FLASH_PHASE_HZ = 2.5f;
         int phase = (int)(g->status_time * FLASH_PHASE_HZ) % 2;
         if (phase == 1) {
             canvas_set_color(canvas, ColorXOR);

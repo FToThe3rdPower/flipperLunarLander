@@ -20,7 +20,7 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [ ] Tuning pass on physics constants
 
 ## Build & install
-
+### To build the current version yourself
 ```sh
 pip install --upgrade ufbt    # one time
 ufbt                          # build .fap into dist/
@@ -29,6 +29,9 @@ ufbt launch                   # build, upload, and run on the connected Flipper
 
 Make sure qFlipper and lab.flipper.net aren't connected to the Flipper while
 running `ufbt launch` — they hold the serial port.
+
+### To run it without building
+You should also be able to transfer the .fap file (dist/lunar_lander.fap) to your flipper and run it.
 
 ## Controls (in-game)
 - Left / Right: rotate lander (hold for continuous rotation)
