@@ -10,7 +10,7 @@
 /* ----- Tunables (all in pixels & seconds) -------------------------------- */
 
 /* NOTE: lander geometry (LANDER_HALF_W, LANDER_BODY_TOP, LANDER_BODY_BOT,
- * LANDER_FOOT_DX, LANDER_FOOT_DY, LANDER_ANTENNA_TOP) lives in
+ * LANDER_FOOT_DX, LANDER_FOOT_DY) lives in
  * lander_sprite.h — single source of truth shared with the menu. The
  * collision math below uses LANDER_FOOT_DX / LANDER_FOOT_DY from that
  * header. */
@@ -428,17 +428,38 @@ static void draw_terrain(Canvas* canvas, const GameState* g) {
     for (int x = 0; x < SCREEN_W - 1; x++) {
         canvas_draw_line(canvas, x, g->terrain[x], x + 1, g->terrain[x + 1]);
     }
-    /* Tick marks on pad endpoints + small "2x" label above. */
+    /* Pads:
+     *   - 2 px thick (add an extra row of pixels just below the surface line)
+     *   - multiplier label is drawn UNDER the pad when there's room; falls
+     *     back to ABOVE the pad for pads near the bottom of the screen.
+     * Reads g->pad_mul[i] so when we eventually vary multipliers per pad
+     * (instead of all DEFAULT_PAD_MUL), nothing else has to change here. */
     canvas_set_font(canvas, FontSecondary);
+    const int label_h = 7;          // approx FontSecondary height
     for (int i = 0; i < g->num_pads; i++) {
         int px = g->pad_x[i];
         int py = g->terrain[px];
-        canvas_draw_line(canvas, px - 1, py, px - 1, py + 3);
-        canvas_draw_line(canvas, px + PAD_W, py, px + PAD_W, py + 3);
-        if (py > 9) {
-            canvas_draw_str_aligned(
-                canvas, px + PAD_W / 2, py - 2, AlignCenter, AlignBottom, "2x");
+
+        /* Second pixel row immediately below the pad surface */
+        if (py + 1 < SCREEN_H) {
+            canvas_draw_line(canvas, px, py + 1, px + PAD_W - 1, py + 1);
         }
+
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%dx", (int)g->pad_mul[i]);
+
+        /* Prefer below; fall back to above if it would clip. */
+        int label_top_below = py + 3;                 // pad surface = py, +1 thickness, +1 gap
+        int label_top_above = py - 2 - label_h;       // baseline 2 above pad, text grows up
+        if (label_top_below + label_h <= SCREEN_H) {
+            canvas_draw_str_aligned(
+                canvas, px + PAD_W / 2, label_top_below, AlignCenter, AlignTop, buf);
+        } else if (label_top_above >= 0) {
+            canvas_draw_str_aligned(
+                canvas, px + PAD_W / 2, py - 2, AlignCenter, AlignBottom, buf);
+        }
+        /* No label at all when both positions would clip; the thick pad
+         * itself still marks the landing zone. */
     }
 }
 
@@ -529,11 +550,13 @@ void game_draw(Canvas* canvas, const GameState* g) {
     draw_lander(canvas, g);
 
     /* Crash flash: XOR-invert the scene (terrain + lander) on alternating
-     * 100ms phases for FLASH_DURATION. HUD draws on top unaffected so the
-     * player can still read what's going on. */
+     * phases for FLASH_DURATION. FLASH_PHASE_HZ controls how often it flips —
+     * lower number = slower flashing. 5 Hz = 200ms per phase. HUD draws on
+     * top unaffected so the player can still read what's going on. */
     if ((g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) &&
         g->status_time < FLASH_DURATION) {
-        int phase = (int)(g->status_time * 10.0f) % 2;
+        const float FLASH_PHASE_HZ = 5.0f;
+        int phase = (int)(g->status_time * FLASH_PHASE_HZ) % 2;
         if (phase == 1) {
             canvas_set_color(canvas, ColorXOR);
             canvas_draw_box(canvas, 0, 0, SCREEN_W, SCREEN_H);
