@@ -42,13 +42,65 @@ const int fuel_mode_starting[FuelModeCount] = {
 
 /* ----- Drawing ----------------------------------------------------------- */
 
-/* Title bar: lander on the left, "LUNAR LANDER" centered, separator at y=10.
- * Line moved from y=8 to y=10 so the new shared sprite (which is 9 px tall
- * including the antenna) fits without clipping. */
-static void draw_title(Canvas* canvas) {
+/* 5x5 gear icon, centered at (cx, cy).
+ *   .#.#.
+ *   #####
+ *   ##.##
+ *   #####
+ *   .#.#.
+ * Recognizable enough at this size to read as "settings". */
+static void draw_gear_icon(Canvas* canvas, int cx, int cy) {
+    /* Top teeth */
+    canvas_draw_dot(canvas, cx - 1, cy - 2);
+    canvas_draw_dot(canvas, cx + 1, cy - 2);
+    /* Top body row */
+    canvas_draw_line(canvas, cx - 2, cy - 1, cx + 2, cy - 1);
+    /* Middle row with center hole */
+    canvas_draw_line(canvas, cx - 2, cy, cx - 1, cy);
+    canvas_draw_line(canvas, cx + 1, cy, cx + 2, cy);
+    /* Bottom body row */
+    canvas_draw_line(canvas, cx - 2, cy + 1, cx + 2, cy + 1);
+    /* Bottom teeth */
+    canvas_draw_dot(canvas, cx - 1, cy + 2);
+    canvas_draw_dot(canvas, cx + 1, cy + 2);
+}
+
+/* Title bar layout:
+ *   [ lander  "LUNAR LANDER" ]  [ gear ]
+ *   x=0..109 = About button   |  x=112..127 = Settings button
+ *   separator line at y=10, content lives in y=0..9
+ *
+ * Each button is independently focusable via MenuTitleSel. Focus is shown
+ * as a filled rbox behind the contents (matching the selector-row style),
+ * with the contents drawn in white. When the title row isn't focused at
+ * all (MenuRow != Title) neither button has a frame — the bar looks like
+ * its old self. */
+static void draw_title(Canvas* canvas, const MenuState* m) {
+    bool about_focused    = (m->row == MenuRowTitle && m->title_sel == MenuTitleSelAbout);
+    bool settings_focused = (m->row == MenuRowTitle && m->title_sel == MenuTitleSelSettings);
+
+    /* About button: lander + title text */
+    if (about_focused) {
+        canvas_draw_rbox(canvas, 0, 0, 110, 10, 2);
+        canvas_set_color(canvas, ColorWhite);
+    }
     lander_draw_static(canvas, 8, 5);
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, "LUNAR LANDER");
+    if (about_focused) {
+        canvas_set_color(canvas, ColorBlack);
+    }
+
+    /* Settings button: 5x5 gear icon at (119, 4) */
+    if (settings_focused) {
+        canvas_draw_rbox(canvas, 112, 0, 16, 10, 2);
+        canvas_set_color(canvas, ColorWhite);
+    }
+    draw_gear_icon(canvas, 119, 4);
+    if (settings_focused) {
+        canvas_set_color(canvas, ColorBlack);
+    }
+
     canvas_draw_line(canvas, 0, 10, SCREEN_W - 1, 10);
 }
 
@@ -69,7 +121,7 @@ static void draw_selector_row(Canvas* canvas, int y, const char* label, bool foc
 }
 
 /* Single description line shown beneath the selectors. Whichever row is
- * focused, its description shows. Buttons row → no description. */
+ * focused, its description shows. Title/Buttons rows → no description. */
 static void draw_focused_desc(Canvas* canvas, const MenuState* m, int y) {
     const char* desc = NULL;
     if (m->row == MenuRowThrust)      desc = thrust_mode_desc[m->thrust_mode];
@@ -103,29 +155,30 @@ static void draw_button_row(Canvas* canvas, const MenuState* m, int y) {
 }
 
 void menu_draw(Canvas* canvas, const MenuState* m) {
-    draw_title(canvas);
-    /* Layout in screen rows:
+    draw_title(canvas, m);
+    /* Layout:
      *   0..10   title bar + separator
      *   12..23  thrust selector
      *   25..36  fuel selector
-     *   38..45  description for focused row (blank when on buttons)
-     *   48..59  Start / Tutorial buttons
-     *   60..63  empty
+     *   38..45  description for focused row (blank on Title/Buttons)
+     *   52..63  Start / Tutorial buttons
      */
     draw_selector_row(canvas, 12, thrust_mode_label[m->thrust_mode], m->row == MenuRowThrust);
     draw_selector_row(canvas, 25, fuel_mode_label[m->fuel_mode],     m->row == MenuRowFuel);
     draw_focused_desc(canvas, m, 38);
-    draw_button_row(canvas, m, 52); //was 48
+    draw_button_row(canvas, m, 52);
 }
 
 /* ----- State & input ----------------------------------------------------- */
 
 void menu_init(MenuState* m) {
-    m->thrust_mode = ThrustModeTapImpulse;
-    m->fuel_mode = FuelModeFull;
-    m->btn = MenuBtnStart;
-    m->row = MenuRowThrust;
-
+    m->thrust_mode  = ThrustModeTapImpulse;
+    m->fuel_mode    = FuelModeFull;
+    m->btn          = MenuBtnStart;
+    m->row          = MenuRowThrust;
+    m->title_sel    = MenuTitleSelAbout;
+    m->sound_on     = true;
+    m->vibration_on = true;
 }
 
 MenuAction menu_input(MenuState* m, const InputEvent* ev) {
@@ -139,7 +192,9 @@ MenuAction menu_input(MenuState* m, const InputEvent* ev) {
             if (m->row < MenuRowCount - 1) m->row++;
             break;
         case InputKeyLeft:
-            if (m->row == MenuRowThrust) {
+            if (m->row == MenuRowTitle) {
+                if (m->title_sel > 0) m->title_sel--;
+            } else if (m->row == MenuRowThrust) {
                 m->thrust_mode = (m->thrust_mode + ThrustModeCount - 1) % ThrustModeCount;
             } else if (m->row == MenuRowFuel) {
                 m->fuel_mode = (m->fuel_mode + FuelModeCount - 1) % FuelModeCount;
@@ -148,7 +203,9 @@ MenuAction menu_input(MenuState* m, const InputEvent* ev) {
             }
             break;
         case InputKeyRight:
-            if (m->row == MenuRowThrust) {
+            if (m->row == MenuRowTitle) {
+                if (m->title_sel < MenuTitleSelCount - 1) m->title_sel++;
+            } else if (m->row == MenuRowThrust) {
                 m->thrust_mode = (m->thrust_mode + 1) % ThrustModeCount;
             } else if (m->row == MenuRowFuel) {
                 m->fuel_mode = (m->fuel_mode + 1) % FuelModeCount;
@@ -157,7 +214,11 @@ MenuAction menu_input(MenuState* m, const InputEvent* ev) {
             }
             break;
         case InputKeyOk:
-            if (m->row == MenuRowButtons) {
+            if (m->row == MenuRowTitle) {
+                return (m->title_sel == MenuTitleSelAbout)
+                    ? MenuActionInfo
+                    : MenuActionSettings;
+            } else if (m->row == MenuRowButtons) {
                 return (m->btn == MenuBtnStart) ? MenuActionStart : MenuActionTutorial;
             }
             break;

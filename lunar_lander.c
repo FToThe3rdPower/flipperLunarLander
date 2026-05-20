@@ -18,7 +18,6 @@
 #include "menu.h"
 #include "game.h"
 
-// Physics'frame' rate
 #define TICK_HZ 60
 
 typedef enum {
@@ -36,6 +35,7 @@ typedef struct {
     bool should_exit;
     MenuState menu;
     GameState game;
+    int settings_focus;  // 0 = sound row, 1 = vibration row; reset on entering ScreenSettings
 } AppModel;
 
 typedef struct {
@@ -49,6 +49,23 @@ typedef struct {
 } App;
 
 /* ----- Callbacks --------------------------------------------------------- */
+
+/* Settings-screen row: label on the left, "On"/"Off" on the right, with the
+ * same rbox/rframe focus chrome as the menu's selector rows. */
+static void draw_setting_row(
+    Canvas* canvas, int y, const char* label, bool value, bool focused) {
+    if (focused) {
+        canvas_draw_rbox(canvas, 2, y, SCREEN_W - 4, 12, 2);
+        canvas_set_color(canvas, ColorWhite);
+    } else {
+        canvas_draw_rframe(canvas, 2, y, SCREEN_W - 4, 12, 2);
+    }
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str_aligned(canvas, 7, y + 6, AlignLeft, AlignCenter, label);
+    canvas_draw_str_aligned(
+        canvas, SCREEN_W - 7, y + 6, AlignRight, AlignCenter, value ? "On" : "Off");
+    canvas_set_color(canvas, ColorBlack);
+}
 
 static void draw_callback(Canvas* canvas, void* ctx) {
     App* app = ctx;
@@ -76,19 +93,35 @@ static void draw_callback(Canvas* canvas, void* ctx) {
                 canvas, SCREEN_W / 2, 2, AlignCenter, AlignTop, "ABOUT");
             canvas_draw_line(canvas, 0, 12, SCREEN_W - 1, 12);
             canvas_set_font(canvas, FontSecondary);
-            /* Credit text wrapped to ~25 chars per line at FontSecondary. */
+            /* Attribution per README line 3, wrapped to fit FontSecondary. */
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, 16, AlignCenter, AlignTop,
-                "Claude Opus 4.7 wrote");
+                "Clauded 'from-scratch,'");
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, 24, AlignCenter, AlignTop,
-                "this from prompts,");
+                "tweaked by");
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, 32, AlignCenter, AlignTop,
-                "graphics, and tweaks by");
+                "FToThe3rdPower,");
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, 40, AlignCenter, AlignTop,
-                "FToThe3rdPower");
+                "inspired by the");
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, 48, AlignCenter, AlignTop,
-                "on GitHub.");
+                "1979 Atari game.");
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, SCREEN_H - 1,
                 AlignCenter, AlignBottom, "Back to return");
+            break;
+        }
+        case ScreenSettings: {
+            canvas_set_font(canvas, FontPrimary);
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W / 2, 2, AlignCenter, AlignTop, "SETTINGS");
+            canvas_draw_line(canvas, 0, 12, SCREEN_W - 1, 12);
+            draw_setting_row(canvas, 16, "Sound",
+                             app->model.menu.sound_on,
+                             app->model.settings_focus == 0);
+            draw_setting_row(canvas, 30, "Vibration",
+                             app->model.menu.vibration_on,
+                             app->model.settings_focus == 1);
+            canvas_set_font(canvas, FontSecondary);
+            canvas_draw_str_aligned(canvas, SCREEN_W / 2, SCREEN_H - 1,
+                AlignCenter, AlignBottom, "OK toggles, Back returns");
             break;
         }
     }
@@ -111,7 +144,8 @@ static void tick_timer_callback(void* ctx) {
 /* ----- Dispatch ---------------------------------------------------------- */
 
 /* Single point of truth for screen transitions. Handles audio
- * acquire/release on entering/leaving ScreenGame, plus game state init. */
+ * acquire/release on entering/leaving ScreenGame, plus game state init,
+ * plus settings-screen focus reset. */
 static void set_screen(AppModel* m, Screen new_screen) {
     Screen old = m->screen;
     if (old == ScreenGame && new_screen != ScreenGame) {
@@ -124,6 +158,9 @@ static void set_screen(AppModel* m, Screen new_screen) {
         int start_fuel = fuel_mode_starting[fm];
         game_init(&m->game, 1, 0, fm, start_fuel);  // fresh game
     }
+    if (new_screen == ScreenSettings && old != ScreenSettings) {
+        m->settings_focus = 0;
+    }
 }
 
 static void handle_menu_action(AppModel* m, MenuAction action) {
@@ -131,6 +168,7 @@ static void handle_menu_action(AppModel* m, MenuAction action) {
         case MenuActionStart:    set_screen(m, ScreenGame); break;
         case MenuActionTutorial: set_screen(m, ScreenTutorial); break;
         case MenuActionInfo:     set_screen(m, ScreenInfo); break;
+        case MenuActionSettings: set_screen(m, ScreenSettings); break;
         case MenuActionExit:     m->should_exit = true; break;
         case MenuActionNone:     break;
     }
@@ -155,6 +193,35 @@ static void handle_input_event(App* app, const InputEvent* ev) {
             if (a == GameActionExitToMenu) set_screen(m, ScreenMenu);
             break;
         }
+        case ScreenSettings: {
+            if (ev->type != InputTypeShort && ev->type != InputTypeRepeat) break;
+            switch (ev->key) {
+                case InputKeyUp:
+                    if (m->settings_focus > 0) m->settings_focus--;
+                    break;
+                case InputKeyDown:
+                    if (m->settings_focus < 1) m->settings_focus++;
+                    break;
+                case InputKeyLeft:
+                case InputKeyRight:
+                case InputKeyOk:
+                    /* All three flip the focused toggle. Left/Right are here so
+                     * users who learned the menu's L/R-cycles-options rhythm
+                     * don't have to switch to OK on this screen. */
+                    if (m->settings_focus == 0) {
+                        m->menu.sound_on = !m->menu.sound_on;
+                    } else {
+                        m->menu.vibration_on = !m->menu.vibration_on;
+                    }
+                    break;
+                case InputKeyBack:
+                    set_screen(m, ScreenMenu);
+                    break;
+                default:
+                    break;
+            }
+            break;
+        }
         case ScreenTutorial:
         case ScreenInfo:
             if (ev->key == InputKeyBack &&
@@ -168,7 +235,10 @@ static void handle_input_event(App* app, const InputEvent* ev) {
 static void handle_tick(App* app, float dt) {
     if (app->model.screen == ScreenGame) {
         game_tick(&app->model.game, app->model.menu.thrust_mode, dt);
-        game_audio_update(&app->model.game, app->model.menu.thrust_mode);
+        game_audio_update(&app->model.game,
+                          app->model.menu.thrust_mode,
+                          app->model.menu.sound_on,
+                          app->model.menu.vibration_on);
     }
 }
 

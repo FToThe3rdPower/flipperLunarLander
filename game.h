@@ -78,7 +78,7 @@ void game_draw(Canvas* canvas, const GameState* g);
  * in that case the game continues silently. */
 void game_audio_start(void);
 void game_audio_stop(void);
-void game_audio_update(const GameState* g, ThrustMode mode);
+void game_audio_update(const GameState* g, ThrustMode mode, bool sound_on, bool vibration_on);
 
 /* Pad count for a given level number (1-indexed). */
 int game_pads_for_level(int level);

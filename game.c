@@ -628,7 +628,7 @@ static void audio_set_vibro(bool on) {
     audio_vibrating = on;
 }
 
-void game_audio_update(const GameState* g, ThrustMode mode) {
+void game_audio_update(const GameState* g, ThrustMode mode, bool sound_on, bool vibration_on) {
     bool continuous_thrust = (mode == ThrustModeBinary || mode == ThrustModeRamp);
     uint16_t target_freq = 0;
     bool target_vibro = false;
@@ -644,6 +644,11 @@ void game_audio_update(const GameState* g, ThrustMode mode) {
                                  g->current_thrust * (THRUST_FREQ_MAX - THRUST_FREQ_MIN));
         target_vibro = true;
     }
+
+    /* Settings gates — applied after target computation so the rest of the
+     * logic stays unchanged. Hits both continuous thrust and one-shot SFX. */
+    if (!sound_on)     target_freq = 0;
+    if (!vibration_on) target_vibro = false;
 
     audio_set_freq(target_freq);
     audio_set_vibro(target_vibro);
