@@ -11,12 +11,20 @@ const char* const thrust_mode_label[ThrustModeCount] = {
     "Tap Impulse",
     "Binary",
     "Ramp",
+    "Vidya Tilt+Tap",
+    "Vidya Tilt+Binary",
+    "Vidya Tilt+Ramp",
+    "Vidya Full Tilt",
 };
 
 const char* const thrust_mode_desc[ThrustModeCount] = {
     "Tap UP = one burst",
     "Hold UP = full thrust",
     "Hold UP, thrust ramps up",
+    "Tilt steers, tap UP=burst",
+    "Tilt steers, hold UP=thrust",
+    "Tilt steers, UP ramps thrust",
+    "Tilt steers + fires thrusters",
 };
 
 const char* const fuel_mode_label[FuelModeCount] = {

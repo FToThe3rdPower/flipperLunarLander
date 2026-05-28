@@ -17,6 +17,7 @@
 #include "lunar_lander.h"
 #include "menu.h"
 #include "game.h"
+#include "vgm_tilt.h"
 
 #define TICK_HZ 60
 
@@ -36,6 +37,7 @@ typedef struct {
     MenuState menu;
     GameState game;
     int settings_focus;  // 0 = sound row, 1 = vibration row; reset on entering ScreenSettings
+    VgmTilt* vgm;        // non-NULL while a VGM tilt mode is active
 } AppModel;
 
 typedef struct {
@@ -148,17 +150,24 @@ static void tick_timer_callback(void* ctx) {
  * plus settings-screen focus reset. */
 static void set_screen(AppModel* m, Screen new_screen) {
     Screen old = m->screen;
-    if (old == ScreenGame && new_screen != ScreenGame) {
+    if(old == ScreenGame && new_screen != ScreenGame) {
         game_audio_stop();
+        if(m->vgm) { vgm_tilt_free(m->vgm); m->vgm = NULL; }
     }
     m->screen = new_screen;
-    if (new_screen == ScreenGame && old != ScreenGame) {
+    if(new_screen == ScreenGame && old != ScreenGame) {
         game_audio_start();
         FuelMode fm = m->menu.fuel_mode;
         int start_fuel = fuel_mode_starting[fm];
         game_init(&m->game, 1, 0, fm, start_fuel);  // fresh game
+
+        bool is_vidya = (m->menu.thrust_mode >= ThrustModeVidyaTap);
+        if(is_vidya) {
+            m->vgm = vgm_tilt_alloc();
+            m->game.vgm_missing = !vgm_tilt_present(m->vgm);
+        }
     }
-    if (new_screen == ScreenSettings && old != ScreenSettings) {
+    if(new_screen == ScreenSettings && old != ScreenSettings) {
         m->settings_focus = 0;
     }
 }
@@ -184,9 +193,10 @@ static void handle_input_event(App* app, const InputEvent* ev) {
             break;
         }
         case ScreenGame: {
-            /* Special-case TapImpulse on Up-press, before the held-state update. */
-            if (m->menu.thrust_mode == ThrustModeTapImpulse &&
-                ev->key == InputKeyUp && ev->type == InputTypePress) {
+            /* Fire tap impulse on Up-press for both tap modes. */
+            if((m->menu.thrust_mode == ThrustModeTapImpulse ||
+                m->menu.thrust_mode == ThrustModeVidyaTap) &&
+               ev->key == InputKeyUp && ev->type == InputTypePress) {
                 game_apply_tap_impulse(&m->game);
             }
             GameAction a = game_input(&m->game, ev);
@@ -233,12 +243,15 @@ static void handle_input_event(App* app, const InputEvent* ev) {
 }
 
 static void handle_tick(App* app, float dt) {
-    if (app->model.screen == ScreenGame) {
-        game_tick(&app->model.game, app->model.menu.thrust_mode, dt);
-        game_audio_update(&app->model.game,
-                          app->model.menu.thrust_mode,
-                          app->model.menu.sound_on,
-                          app->model.menu.vibration_on);
+    if(app->model.screen == ScreenGame) {
+        AppModel* m = &app->model;
+        if(m->vgm && vgm_tilt_present(m->vgm)) {
+            m->game.tilt_pitch = vgm_tilt_pitch(m->vgm);
+            m->game.tilt_roll  = vgm_tilt_roll(m->vgm);
+        }
+        game_tick(&m->game, m->menu.thrust_mode, dt);
+        game_audio_update(&m->game, m->menu.thrust_mode,
+                          m->menu.sound_on, m->menu.vibration_on);
     }
 }
 

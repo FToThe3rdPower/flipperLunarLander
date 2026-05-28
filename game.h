@@ -37,6 +37,13 @@ typedef struct {
     float up_hold_time;   // seconds (used by Ramp mode)
     float current_thrust; // 0..1, derived from mode + input each tick
 
+    /* VGM tilt state — written by the main loop before each game_tick call.
+     * pitch: 0=normal hold (up-button up), +90≈flat/screen-up.
+     * roll:  0=level, positive=tilt right. */
+    float tilt_pitch;
+    float tilt_roll;
+    bool  vgm_missing;    // VGM mode selected but IMU not detected
+
     /* Level data */
     uint32_t rng_state;
     uint8_t terrain[SCREEN_W];     // y of ground at each column

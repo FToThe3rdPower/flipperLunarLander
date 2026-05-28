@@ -40,6 +40,12 @@
 #define SAFE_VX            4.0f
 #define SAFE_ANGLE         0.22f   // ~12.6 degrees
 
+/* VGM tilt control parameters */
+#define TILT_STEER_DEAD    5.0f    // roll dead-zone (degrees) before steering starts
+#define TILT_STEER_MAX    45.0f    // roll degrees that yield full ROT_RATE
+#define TILT_THRUST_DEAD   5.0f    // pitch dead-zone (degrees) before thrust starts
+#define TILT_THRUST_MAX   75.0f    // pitch degrees that yield 100% thrust
+
 #define START_FUEL         100.0f
 
 /* ----- Audio / feedback tunables ----------------------------------------- */
@@ -347,6 +353,16 @@ static void check_collision(GameState* g) {
     g->vx = g->vy = 0.0f;
 }
 
+/* Normalize a raw tilt angle to [-1, 1] after applying a dead-zone.
+ * Returns 0 inside the dead-zone; sign tracks the input sign. */
+static float tilt_norm(float raw, float dead, float max) {
+    float abs_v = raw < 0.0f ? -raw : raw;
+    if(abs_v <= dead) return 0.0f;
+    float t = (abs_v - dead) / (max - dead);
+    if(t > 1.0f) t = 1.0f;
+    return (raw >= 0.0f) ? t : -t;
+}
+
 void game_tick(GameState* g, ThrustMode mode, float dt) {
     g->status_time += dt;
 
@@ -362,26 +378,39 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
 
     g->elapsed += dt;
 
-    /* Rotation */
-    if (g->left_held)  g->angle -= ROT_RATE * dt;
-    if (g->right_held) g->angle += ROT_RATE * dt;
+    /* Rotation — buttons always work; tilt steering added for VGM modes. */
+    if(g->left_held)  g->angle -= ROT_RATE * dt;
+    if(g->right_held) g->angle += ROT_RATE * dt;
+    if(mode == ThrustModeVidyaTap    ||
+       mode == ThrustModeVidyaBinary ||
+       mode == ThrustModeVidyaRamp   ||
+       mode == ThrustModeVidyaFull) {
+        float roll_n = tilt_norm(g->tilt_roll, TILT_STEER_DEAD, TILT_STEER_MAX);
+        g->angle += ROT_RATE * roll_n * dt;
+    }
 
     /* Thrust level (0..1) per mode. */
     g->current_thrust = 0.0f;
-    if (mode == ThrustModeBinary) {
+    if(mode == ThrustModeBinary || mode == ThrustModeVidyaBinary) {
         g->current_thrust = g->up_held ? 1.0f : 0.0f;
-    } else if (mode == ThrustModeRamp) {
-        if (g->up_held) {
+    } else if(mode == ThrustModeRamp || mode == ThrustModeVidyaRamp) {
+        if(g->up_held) {
             g->up_hold_time += dt;
             float t = g->up_hold_time / RAMP_TIME;
-            if (t > 1.0f) t = 1.0f;
+            if(t > 1.0f) t = 1.0f;
             g->current_thrust = t;
         } else {
             g->up_hold_time = 0.0f;
             g->current_thrust = 0.0f;
         }
+    } else if(mode == ThrustModeVidyaFull) {
+        /* Pitch drives thrust: 0°=off, TILT_THRUST_MAX°=100%. No up-button needed. */
+        float t = (g->tilt_pitch - TILT_THRUST_DEAD) / (TILT_THRUST_MAX - TILT_THRUST_DEAD);
+        if(t < 0.0f) t = 0.0f;
+        if(t > 1.0f) t = 1.0f;
+        g->current_thrust = t;
     }
-    /* TapImpulse handled by game_input on the press event itself (see below). */
+    /* TapImpulse and VidyaTap handled by game_input on the press event. */
 
     /* Apply thrust acceleration along lander up-axis (-y when angle=0). */
     if (g->current_thrust > 0.0f && g->fuel > 0.0f) {
@@ -587,6 +616,14 @@ void game_draw(Canvas* canvas, const GameState* g) {
     }
 
     draw_hud(canvas, g);
+
+    if(g->vgm_missing) {
+        canvas_set_font(canvas, FontSecondary);
+        canvas_draw_str_aligned(
+            canvas, SCREEN_W / 2, SCREEN_H / 2 - 4, AlignCenter, AlignCenter,
+            "VGM not found");
+    }
+
     draw_status_banner(canvas, g);
 }
 
@@ -645,7 +682,11 @@ static void audio_set_vibro(bool on) {
 }
 
 void game_audio_update(const GameState* g, ThrustMode mode, bool sound_on, bool vibration_on) {
-    bool continuous_thrust = (mode == ThrustModeBinary || mode == ThrustModeRamp);
+    bool continuous_thrust = (mode == ThrustModeBinary    ||
+                              mode == ThrustModeRamp       ||
+                              mode == ThrustModeVidyaBinary||
+                              mode == ThrustModeVidyaRamp  ||
+                              mode == ThrustModeVidyaFull);
     uint16_t target_freq = 0;
     bool target_vibro = false;
 

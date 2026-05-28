@@ -11,6 +11,10 @@ typedef enum {
     ThrustModeTapImpulse = 0,   // each tap = one fixed impulse
     ThrustModeBinary,           // hold UP = full thrust, release = off
     ThrustModeRamp,             // hold UP, thrust ramps up over time
+    ThrustModeVidyaTap,         // VGM tilt steering + tap impulse
+    ThrustModeVidyaBinary,      // VGM tilt steering + binary (hold UP) thrust
+    ThrustModeVidyaRamp,        // VGM tilt steering + ramped (hold UP) thrust
+    ThrustModeVidyaFull,        // VGM full tilt: tilt steers AND fires thrusters
     ThrustModeCount,
 } ThrustMode;
 
