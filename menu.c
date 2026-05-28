@@ -86,7 +86,7 @@ static void draw_title(Canvas* canvas, const MenuState* m) {
     }
     lander_draw_static(canvas, 8, 5);
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, "LUNAR LANDER");
+    canvas_draw_str_aligned(canvas, SCREEN_W / 2, 1, AlignCenter, AlignTop, "LUNAR LANDER");
     if (about_focused) {
         canvas_set_color(canvas, ColorBlack);
     }
