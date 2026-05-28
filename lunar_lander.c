@@ -246,8 +246,13 @@ static void handle_tick(App* app, float dt) {
     if(app->model.screen == ScreenGame) {
         AppModel* m = &app->model;
         if(m->vgm && vgm_tilt_present(m->vgm)) {
-            m->game.tilt_pitch = vgm_tilt_pitch(m->vgm);
-            m->game.tilt_roll  = vgm_tilt_roll(m->vgm);
+            m->game.tilt_pitch = vgm_tilt_roll(m->vgm);
+            m->game.tilt_roll  = vgm_tilt_pitch(m->vgm);
+            if(m->game.needs_tilt_cal) {
+                m->game.tilt_pitch_offset = m->game.tilt_pitch;
+                m->game.tilt_roll_offset  = m->game.tilt_roll;
+                m->game.needs_tilt_cal    = false;
+            }
         }
         game_tick(&m->game, m->menu.thrust_mode, dt);
         game_audio_update(&m->game, m->menu.thrust_mode,

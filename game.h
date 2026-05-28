@@ -42,7 +42,10 @@ typedef struct {
      * roll:  0=level, positive=tilt right. */
     float tilt_pitch;
     float tilt_roll;
-    bool  vgm_missing;    // VGM mode selected but IMU not detected
+    float tilt_pitch_offset;  // calibration zero captured at level start
+    float tilt_roll_offset;   // calibration zero captured at level start
+    bool  needs_tilt_cal;     // true until the first IMU reading is captured
+    bool  vgm_missing;        // VGM mode selected but IMU not detected
 
     /* Level data */
     uint32_t rng_state;

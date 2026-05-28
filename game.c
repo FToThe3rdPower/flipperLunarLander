@@ -231,6 +231,9 @@ void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int start
     g->elapsed = 0.0f;
     g->up_hold_time = 0.0f;
     g->current_thrust = 0.0f;
+    g->needs_tilt_cal = true;
+    g->tilt_pitch_offset = 0.0f;
+    g->tilt_roll_offset  = 0.0f;
 }
 
 /* ----- Input ------------------------------------------------------------- */
@@ -353,16 +356,6 @@ static void check_collision(GameState* g) {
     g->vx = g->vy = 0.0f;
 }
 
-/* Normalize a raw tilt angle to [-1, 1] after applying a dead-zone.
- * Returns 0 inside the dead-zone; sign tracks the input sign. */
-static float tilt_norm(float raw, float dead, float max) {
-    float abs_v = raw < 0.0f ? -raw : raw;
-    if(abs_v <= dead) return 0.0f;
-    float t = (abs_v - dead) / (max - dead);
-    if(t > 1.0f) t = 1.0f;
-    return (raw >= 0.0f) ? t : -t;
-}
-
 void game_tick(GameState* g, ThrustMode mode, float dt) {
     g->status_time += dt;
 
@@ -378,15 +371,16 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
 
     g->elapsed += dt;
 
-    /* Rotation — buttons always work; tilt steering added for VGM modes. */
-    if(g->left_held)  g->angle -= ROT_RATE * dt;
-    if(g->right_held) g->angle += ROT_RATE * dt;
+    /* Rotation — buttons for non-VGM modes; direct angle mapping for VGM modes. */
     if(mode == ThrustModeVidyaTap    ||
        mode == ThrustModeVidyaBinary ||
        mode == ThrustModeVidyaRamp   ||
        mode == ThrustModeVidyaFull) {
-        float roll_n = tilt_norm(g->tilt_roll, TILT_STEER_DEAD, TILT_STEER_MAX);
-        g->angle += ROT_RATE * roll_n * dt;
+        float cal_roll = g->tilt_roll - g->tilt_roll_offset;
+        g->angle = -cal_roll * (3.14159265f / 180.0f);
+    } else {
+        if(g->left_held)  g->angle -= ROT_RATE * dt;
+        if(g->right_held) g->angle += ROT_RATE * dt;
     }
 
     /* Thrust level (0..1) per mode. */
@@ -404,8 +398,9 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
             g->current_thrust = 0.0f;
         }
     } else if(mode == ThrustModeVidyaFull) {
-        /* Pitch drives thrust: 0°=off, TILT_THRUST_MAX°=100%. No up-button needed. */
-        float t = (g->tilt_pitch - TILT_THRUST_DEAD) / (TILT_THRUST_MAX - TILT_THRUST_DEAD);
+        /* Calibrated pitch drives thrust: dead-zone → 0, TILT_THRUST_MAX → 100%. */
+        float cal_pitch = g->tilt_pitch - g->tilt_pitch_offset;
+        float t = (cal_pitch - TILT_THRUST_DEAD) / (TILT_THRUST_MAX - TILT_THRUST_DEAD);
         if(t < 0.0f) t = 0.0f;
         if(t > 1.0f) t = 1.0f;
         g->current_thrust = t;
