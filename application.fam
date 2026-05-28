@@ -8,5 +8,6 @@ App(
     fap_author="FToThe3rdPower",
     fap_version="0.3",
     fap_description="Atari's Lunar Lander, ported to the Flipper Zero.",
+    fap_icon="Lunar_Lander_icon.png",
     sources=["*.c"],
 )
