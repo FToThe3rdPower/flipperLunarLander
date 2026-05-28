@@ -22,7 +22,10 @@
 #define DESPIKE_NEAR_TOL   5       // px tolerance for "neighbor is part of the peak"
 
 #define HIGHEST_LEVEL      10      // bump this when adding levels; scoring depends on it
-#define DEFAULT_PAD_MUL    2       // placeholder — varied multipliers come later
+/* Distance thresholds (from spawn center) for multiplier tiers 1x/2x/3x/5x */
+#define MUL_1X_THRESH      8              // basically right below spawn
+#define MUL_2X_THRESH      (SCREEN_W / 5) // ~25 px
+#define MUL_3X_THRESH      (SCREEN_W / 3) // ~42 px — beyond this → 5x
 
 #define GRAVITY            6.0f    // pixels/sec^2 downward
 #define THRUST_MAX         18.0f   // pixels/sec^2 along lander up-axis at full thrust
@@ -175,7 +178,20 @@ static void pads_place(GameState* g) {
             g->terrain[px + dx] = (uint8_t)flat_y;
         }
         g->pad_x[i] = (uint8_t)px;
-        g->pad_mul[i] = DEFAULT_PAD_MUL;
+    }
+
+    /* Assign multipliers based on distance of each pad's center from the
+     * lander spawn (screen center). Farther = higher reward. */
+    int spawn_cx = SCREEN_W / 2;
+    for (int i = 0; i < g->num_pads; i++) {
+        int pad_cx = g->pad_x[i] + PAD_W / 2;
+        int dist = abs(pad_cx - spawn_cx);
+        uint8_t mul;
+        if      (dist <= MUL_1X_THRESH) mul = 1;
+        else if (dist <= MUL_2X_THRESH) mul = 2;
+        else if (dist <= MUL_3X_THRESH) mul = 3;
+        else                            mul = 5;
+        g->pad_mul[i] = mul;
     }
 }
 
