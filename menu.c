@@ -11,10 +11,10 @@ const char* const thrust_mode_label[ThrustModeCount] = {
     "Tap Impulse",
     "Binary",
     "Ramp",
-    "Vidya Tilt+Tap",
-    "Vidya Tilt+Binary",
-    "Vidya Tilt+Ramp",
-    "Vidya Full Tilt",
+    "Vidya module Tilt+Tap",
+    "Vidya module Tilt+Binary",
+    "Vidya module Tilt+Ramp",
+    "Vidya module Full Tilt",
 };
 
 const char* const thrust_mode_desc[ThrustModeCount] = {
