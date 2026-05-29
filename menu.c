@@ -50,27 +50,27 @@ const int fuel_mode_starting[FuelModeCount] = {
 
 /* ----- Drawing ----------------------------------------------------------- */
 
-/* 5x5 gear icon, centered at (cx, cy).
- *   .#.#.
- *   #####
- *   ##.##
- *   #####
- *   .#.#.
- * Recognizable enough at this size to read as "settings". */
-static void draw_gear_icon(Canvas* canvas, int cx, int cy) {
-    /* Top teeth */
-    canvas_draw_dot(canvas, cx - 1, cy - 2);
-    canvas_draw_dot(canvas, cx + 1, cy - 2);
-    /* Top body row */
-    canvas_draw_line(canvas, cx - 2, cy - 1, cx + 2, cy - 1);
-    /* Middle row with center hole */
-    canvas_draw_line(canvas, cx - 2, cy, cx - 1, cy);
-    canvas_draw_line(canvas, cx + 1, cy, cx + 2, cy);
-    /* Bottom body row */
-    canvas_draw_line(canvas, cx - 2, cy + 1, cx + 2, cy + 1);
-    /* Bottom teeth */
-    canvas_draw_dot(canvas, cx - 1, cy + 2);
-    canvas_draw_dot(canvas, cx + 1, cy + 2);
+/* 7x8 wrench icon, centered at (cx, cy).
+ *   ###....    head: top bridge
+ *   ..#....    head: right wall (C opens left — 2px gap = jaw)
+ *   ..#....    head: right wall
+ *   ###....    head: bottom bridge
+ *   ..##...    handle (diagonal down-right)
+ *   ...##..
+ *   ....##.
+ *   .....##
+ */
+static void draw_wrench_icon(Canvas* canvas, int cx, int cy) {
+    /* Head: C-shape opening to the left (jaw for gripping) */
+    canvas_draw_line(canvas, cx - 3, cy - 4, cx - 1, cy - 4);  // top bridge
+    canvas_draw_dot(canvas,  cx - 1, cy - 3);                   // right wall
+    canvas_draw_dot(canvas,  cx - 1, cy - 2);                   // right wall
+    canvas_draw_line(canvas, cx - 3, cy - 1, cx - 1, cy - 1);  // bottom bridge
+    /* Handle: diagonal 2px-wide line */
+    canvas_draw_line(canvas, cx - 1, cy,     cx,     cy);
+    canvas_draw_line(canvas, cx,     cy + 1, cx + 1, cy + 1);
+    canvas_draw_line(canvas, cx + 1, cy + 2, cx + 2, cy + 2);
+    canvas_draw_line(canvas, cx + 2, cy + 3, cx + 3, cy + 3);
 }
 
 /* Title bar layout:
@@ -106,7 +106,7 @@ static void draw_title(Canvas* canvas, const MenuState* m) {
         canvas_draw_rbox(canvas, 112, 0, 16, 10, 2);
         canvas_set_color(canvas, ColorWhite);
     }
-    draw_gear_icon(canvas, 119, 4);
+    draw_wrench_icon(canvas, 119, 5);
     if (settings_focused) {
         canvas_set_color(canvas, ColorBlack);
     }

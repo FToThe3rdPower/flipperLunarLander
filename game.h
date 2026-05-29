@@ -57,6 +57,9 @@ typedef struct {
     /* Status */
     GameStatus status;
     float status_time;    // seconds since status changed
+    float land_vx;        // vx captured at moment of landing/crash
+    float land_vy;        // vy captured at moment of landing/crash
+    float land_angle;     // angle (radians) captured at moment of landing/crash
 
     /* Fuel campaign state. fuel_mode is captured at game start and used by the
      * advance/retry logic in game_input(). fuel_at_level_start is the value of

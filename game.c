@@ -353,6 +353,9 @@ static void check_collision(GameState* g) {
         g->sfx_vibrate = true;
     }
     g->status_time = 0.0f;
+    g->land_vx    = g->vx;
+    g->land_vy    = g->vy;
+    g->land_angle = g->angle;
     g->vx = g->vy = 0.0f;
 }
 
@@ -463,6 +466,29 @@ void game_apply_tap_impulse(GameState* g) {
 }
 
 /* ----- Drawing ----------------------------------------------------------- */
+
+/* 5×7 pixel-art theta (Θ). x/y = top-left corner. Matches FontSecondary cap height. */
+static void draw_theta(Canvas* canvas, int x, int y) {
+    canvas_draw_line(canvas, x+1, y,   x+3, y);           // top arc
+    canvas_draw_dot(canvas,  x,   y+1);
+    canvas_draw_dot(canvas,  x+4, y+1);
+    canvas_draw_dot(canvas,  x,   y+2);
+    canvas_draw_dot(canvas,  x+4, y+2);
+    canvas_draw_line(canvas, x,   y+3, x+4, y+3);         // crossbar (midpoint)
+    canvas_draw_dot(canvas,  x,   y+4);
+    canvas_draw_dot(canvas,  x+4, y+4);
+    canvas_draw_dot(canvas,  x,   y+5);
+    canvas_draw_dot(canvas,  x+4, y+5);
+    canvas_draw_line(canvas, x+1, y+6, x+3, y+6);         // bottom arc
+}
+
+/* 3×3 pixel-art degree symbol (°). x/y = top-left corner. */
+static void draw_degree_sym(Canvas* canvas, int x, int y) {
+    canvas_draw_dot(canvas, x+1, y);
+    canvas_draw_dot(canvas, x,   y+1);
+    canvas_draw_dot(canvas, x+2, y+1);
+    canvas_draw_dot(canvas, x+1, y+2);
+}
 
 static void draw_terrain(Canvas* canvas, const GameState* g) {
     for (int x = 0; x < SCREEN_W - 1; x++) {
@@ -578,17 +604,67 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
         default: break;
     }
 
-    /* Banner box, centered. */
-    int bx = 14, by = 22, bw = SCREEN_W - 28, bh = 20;
+    bool is_crash   = (g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel);
+    bool vx_bad     = fabsf(g->land_vx)    >= SAFE_VX;
+    bool vy_bad     = fabsf(g->land_vy)    >= SAFE_VY;
+    bool angle_bad  = is_crash && fabsf(g->land_angle) >= SAFE_ANGLE;
+    bool blink_hide = is_crash && (((int)(g->status_time * 3.0f) % 2) == 1);
+
+    /* Banner grows a line when angle also caused the crash. */
+    int bx = 14, bw = SCREEN_W - 28;
+    int by = angle_bad ? 10 : 14;
+    int bh = angle_bad ? 44 : 36;
+
     canvas_set_color(canvas, ColorWhite);
     canvas_draw_box(canvas, bx, by, bw, bh);
     canvas_set_color(canvas, ColorBlack);
     canvas_draw_rframe(canvas, bx, by, bw, bh, 2);
 
+    /* Line 1 — status title */
     canvas_set_font(canvas, FontPrimary);
     canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 8, AlignCenter, AlignCenter, line1);
+
+    /* Line 2 — velocities; offending values blink on crash */
+    char buf[14];
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 16, AlignCenter, AlignCenter, line2);
+    int vel_y = by + (angle_bad ? 19 : 20);
+    if(!(vx_bad && blink_hide)) {
+        snprintf(buf, sizeof(buf), "Vx:%+d", (int)g->land_vx);
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2 - 3, vel_y, AlignRight, AlignCenter, buf);
+    }
+    if(!(vy_bad && blink_hide)) {
+        snprintf(buf, sizeof(buf), "Vy:%+d", (int)g->land_vy);
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2 + 3, vel_y, AlignLeft, AlignCenter, buf);
+    }
+
+    /* Line 3 — angle, only when it was the cause; blinks too.
+     * Layout: [θ][:NN][°][R/L] — θ and ° drawn as pixel-art, ASCII measured
+     * with canvas_string_width so the whole thing centers correctly. */
+    if(angle_bad && !blink_hide) {
+        int deg = (int)(fabsf(g->land_angle) * (180.0f / 3.14159265f) + 0.5f);
+        char dir_str[2] = {(g->land_angle >= 0.0f) ? 'R' : 'L', '\0'};
+        snprintf(buf, sizeof(buf), ":%d", deg);
+
+        int ascii_w = (int)canvas_string_width(canvas, buf);
+        int dir_w   = (int)canvas_string_width(canvas, dir_str);
+        /* theta=5 +1gap, ascii_w, +1gap, degree=3 +1gap, dir */
+        int total_w = 6 + ascii_w + 1 + 3 + 1 + dir_w;
+        int cx = SCREEN_W / 2;
+        int cy = by + 29;   // vertical center of this line
+        int x  = cx - total_w / 2;
+
+        draw_theta(canvas, x, cy - 4);         // 7px tall, aligned with text top
+        x += 6;
+        canvas_draw_str(canvas, x, cy + 3, buf); // FontSecondary baseline = cy+3
+        x += ascii_w + 1;
+        draw_degree_sym(canvas, x, cy - 3);    // superscript: top aligns with text top
+        x += 4;
+        canvas_draw_str(canvas, x, cy + 3, dir_str);
+    }
+
+    /* Last line — action prompt */
+    int prompt_y = by + (angle_bad ? 39 : 30);
+    canvas_draw_str_aligned(canvas, SCREEN_W / 2, prompt_y, AlignCenter, AlignCenter, line2);
 }
 
 void game_draw(Canvas* canvas, const GameState* g) {
