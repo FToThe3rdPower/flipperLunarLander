@@ -87,14 +87,16 @@ static void draw_title(Canvas* canvas, const MenuState* m) {
     bool about_focused    = (m->row == MenuRowTitle && m->title_sel == MenuTitleSelAbout);
     bool settings_focused = (m->row == MenuRowTitle && m->title_sel == MenuTitleSelSettings);
 
-    /* About button: lander + title text */
+    /* Lander sprite — decorative, sits left of the about button */
+    lander_draw_static(canvas, 6, 5);
+
+    /* About button: title text only, starts after the sprite */
     if (about_focused) {
-        canvas_draw_rbox(canvas, 0, 0, 110, 10, 2);
+        canvas_draw_rbox(canvas, 13, 0, 97, 10, 2);
         canvas_set_color(canvas, ColorWhite);
     }
-    lander_draw_static(canvas, 8, 5);
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str_aligned(canvas, SCREEN_W / 2, 1, AlignCenter, AlignTop, "LUNAR LANDER");
+    canvas_draw_str_aligned(canvas, 61, 5, AlignCenter, AlignCenter, "LUNAR LANDER");
     if (about_focused) {
         canvas_set_color(canvas, ColorBlack);
     }
