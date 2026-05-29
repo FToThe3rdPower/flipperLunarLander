@@ -59,6 +59,9 @@
 #define SFX_TAP_FREQ       220     // Hz
 #define SFX_TAP_DUR        0.06f   // sec
 #define FLASH_DURATION     1.6f    // sec - crash inversion flashing
+#define LAND_PULSE_ON      0.08f   // sec each landing vibration pulse is on
+#define LAND_PULSE_OFF     0.08f   // sec gap between pulses
+#define LAND_PULSE_COUNT   3       // number of pulses
 
 /* ----- RNG (xorshift32, seeded from level) ------------------------------- */
 
@@ -667,6 +670,19 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
     canvas_draw_str_aligned(canvas, SCREEN_W / 2, prompt_y, AlignCenter, AlignCenter, line2);
 }
 
+/* Draw a ~20% dim overlay by setting 1 in every 5 pixels black using a
+ * diagonal stripe pattern. Called just before the status banner so the
+ * banner itself stays crisp white on top. */
+static void draw_dim_overlay(Canvas* canvas) {
+    canvas_set_color(canvas, ColorBlack);
+    for(int y = 0; y < SCREEN_H; y++) {
+        int x = (5 - (y % 5)) % 5;
+        for(; x < SCREEN_W; x += 5) {
+            canvas_draw_dot(canvas, x, y);
+        }
+    }
+}
+
 void game_draw(Canvas* canvas, const GameState* g) {
     draw_terrain(canvas, g);
     draw_lander(canvas, g);
@@ -687,6 +703,12 @@ void game_draw(Canvas* canvas, const GameState* g) {
     }
 
     draw_hud(canvas, g);
+
+    /* Dim the whole frame when the status banner is up. */
+    bool banner_visible = (g->status != GameStatusFlying) &&
+        !((g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) &&
+          g->status_time < FLASH_DURATION);
+    if(banner_visible) draw_dim_overlay(canvas);
 
     if(g->vgm_missing) {
         canvas_set_font(canvas, FontSecondary);
@@ -773,10 +795,20 @@ void game_audio_update(const GameState* g, ThrustMode mode, bool sound_on, bool 
         target_vibro = true;
     }
 
+    /* Landing celebration: 3 short vibration pulses timed off status_time. */
+    if(g->status == GameStatusLanded) {
+        float period = LAND_PULSE_ON + LAND_PULSE_OFF;
+        float total  = LAND_PULSE_COUNT * period;
+        if(g->status_time < total) {
+            float phase = g->status_time - ((int)(g->status_time / period)) * period;
+            if(phase < LAND_PULSE_ON) target_vibro = true;
+        }
+    }
+
     /* Settings gates — applied after target computation so the rest of the
      * logic stays unchanged. Hits both continuous thrust and one-shot SFX. */
-    if (!sound_on)     target_freq = 0;
-    if (!vibration_on) target_vibro = false;
+    if(!sound_on)     target_freq  = 0;
+    if(!vibration_on) target_vibro = false;
 
     audio_set_freq(target_freq);
     audio_set_vibro(target_vibro);
