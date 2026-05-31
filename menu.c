@@ -69,15 +69,15 @@ const int fuel_mode_starting[FuelModeCount] = {
  */
 static void draw_wrench_icon(Canvas* canvas, int cx, int cy) {
     /* Head: C-shape opening to the left (jaw for gripping) */
-    canvas_draw_line(canvas, cx - 3, cy - 4, cx - 1, cy - 4);  // top bridge
-    canvas_draw_dot(canvas,  cx - 1, cy - 3);                   // right wall
-    canvas_draw_dot(canvas,  cx - 1, cy - 2);                   // right wall
-    canvas_draw_line(canvas, cx - 3, cy - 1, cx - 1, cy - 1);  // bottom bridge
+    canvas_draw_line(canvas, cx - 3, cy - 4, cx - 1, cy - 4);  // top
+    canvas_draw_line(canvas,  cx - 1, cy - 3, cx - 1, cy - 2); // right wall
+    canvas_draw_line(canvas,  cx, cy - 3, cx, cy - 2);         // double thick right wall
+    canvas_draw_line(canvas, cx - 3, cy - 1, cx, cy - 1);  // bottom
     /* Handle: diagonal 2px-wide line */
-    canvas_draw_line(canvas, cx - 1, cy,     cx,     cy);
-    canvas_draw_line(canvas, cx,     cy + 1, cx + 1, cy + 1);
-    canvas_draw_line(canvas, cx + 1, cy + 2, cx + 2, cy + 2);
-    canvas_draw_line(canvas, cx + 2, cy + 3, cx + 3, cy + 3);
+    canvas_draw_line(canvas, cx,   cy,      cx+1,   cy);
+    canvas_draw_line(canvas, cx+1,  cy + 1, cx + 2, cy + 1);
+    canvas_draw_line(canvas, cx+2, cy + 2,  cx + 3, cy + 2);
+    canvas_draw_line(canvas, cx+3, cy + 3,  cx + 4, cy + 3);
 }
 
 /* Title bar layout:
