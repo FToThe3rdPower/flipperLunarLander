@@ -68,6 +68,10 @@ typedef struct {
     FuelMode fuel_mode;
     float    fuel_at_level_start;
 
+    /* Tutorial mode. gravity_scale=0.5 on tutorial level 1, 1.0 otherwise. */
+    bool  is_tutorial;
+    float gravity_scale;
+
     /* Sound effects (one-shot, drives both speaker and vibro briefly) */
     float sfx_remaining;  // seconds left on the current SFX, 0 = none
     uint16_t sfx_freq;    // Hz
@@ -82,6 +86,8 @@ typedef struct {
  *                  the previous level's remaining fuel on advance (no-refuel),
  *                  or fuel_at_level_start on retry. */
 void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int starting_fuel);
+/* Tutorial variant: flat terrain, single centred pad, half-gravity on level 1. */
+void game_init_tutorial(GameState* g, int tut_level, int score);
 GameAction game_input(GameState* g, const InputEvent* ev);
 void game_tick(GameState* g, ThrustMode mode, float dt);
 void game_draw(Canvas* canvas, const GameState* g);

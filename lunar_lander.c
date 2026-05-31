@@ -36,8 +36,10 @@ typedef struct {
     bool should_exit;
     MenuState menu;
     GameState game;
-    int settings_focus;  // 0 = sound row, 1 = vibration row; reset on entering ScreenSettings
-    VgmTilt* vgm;        // non-NULL while a VGM tilt mode is active
+    int settings_focus;   // 0 = sound row, 1 = vibration row; reset on entering ScreenSettings
+    VgmTilt* vgm;         // non-NULL while a VGM tilt mode is active
+    bool tutorial_active;
+    int  tutorial_level;  // 1 or 2
 } AppModel;
 
 typedef struct {
@@ -157,9 +159,13 @@ static void set_screen(AppModel* m, Screen new_screen) {
     m->screen = new_screen;
     if(new_screen == ScreenGame && old != ScreenGame) {
         game_audio_start();
-        FuelMode fm = m->menu.fuel_mode;
-        int start_fuel = fuel_mode_starting[fm];
-        game_init(&m->game, 1, 0, fm, start_fuel);  // fresh game
+        if(m->tutorial_active) {
+            game_init_tutorial(&m->game, m->tutorial_level, 0);
+        } else {
+            FuelMode fm = m->menu.fuel_mode;
+            int start_fuel = fuel_mode_starting[fm];
+            game_init(&m->game, 1, 0, fm, start_fuel);
+        }
 
         bool is_vidya = (m->menu.thrust_mode >= ThrustModeVidyaTap);
         if(is_vidya) {
@@ -174,8 +180,15 @@ static void set_screen(AppModel* m, Screen new_screen) {
 
 static void handle_menu_action(AppModel* m, MenuAction action) {
     switch (action) {
-        case MenuActionStart:    set_screen(m, ScreenGame); break;
-        case MenuActionTutorial: set_screen(m, ScreenTutorial); break;
+        case MenuActionStart:
+            m->tutorial_active = false;
+            set_screen(m, ScreenGame);
+            break;
+        case MenuActionTutorial:
+            m->tutorial_active = true;
+            m->tutorial_level  = 1;
+            set_screen(m, ScreenGame);
+            break;
         case MenuActionInfo:     set_screen(m, ScreenInfo); break;
         case MenuActionSettings: set_screen(m, ScreenSettings); break;
         case MenuActionExit:     m->should_exit = true; break;
@@ -199,8 +212,32 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                ev->key == InputKeyUp && ev->type == InputTypePress) {
                 game_apply_tap_impulse(&m->game);
             }
+
+            /* Tutorial: intercept OK on status screens so we control level
+             * advancement instead of game_input's normal campaign logic. */
+            if(m->tutorial_active &&
+               ev->type == InputTypeShort && ev->key == InputKeyOk &&
+               m->game.status != GameStatusFlying) {
+                if(m->game.status == GameStatusLanded) {
+                    if(m->tutorial_level < 2) {
+                        m->tutorial_level++;
+                        game_init_tutorial(&m->game, m->tutorial_level, m->game.score);
+                    } else {
+                        m->tutorial_active = false;
+                        set_screen(m, ScreenMenu);
+                    }
+                } else {
+                    /* Crashed or out of fuel — retry same tutorial level */
+                    game_init_tutorial(&m->game, m->tutorial_level, m->game.score);
+                }
+                break;
+            }
+
             GameAction a = game_input(&m->game, ev);
-            if (a == GameActionExitToMenu) set_screen(m, ScreenMenu);
+            if(a == GameActionExitToMenu) {
+                m->tutorial_active = false;
+                set_screen(m, ScreenMenu);
+            }
             break;
         }
         case ScreenSettings: {

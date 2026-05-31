@@ -237,6 +237,41 @@ void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int start
     g->needs_tilt_cal = true;
     g->tilt_pitch_offset = 0.0f;
     g->tilt_roll_offset  = 0.0f;
+    g->gravity_scale = 1.0f;
+    g->is_tutorial   = false;
+}
+
+void game_init_tutorial(GameState* g, int tut_level, int score) {
+    memset(g, 0, sizeof(*g));
+    g->level       = tut_level;
+    g->score       = score;
+    g->is_tutorial = true;
+    g->gravity_scale = (tut_level == 1) ? 0.5f : 1.0f;
+    g->fuel_mode   = FuelModeFull;
+
+    /* Completely flat terrain */
+    uint8_t flat_y = (uint8_t)(TERRAIN_BOT_Y - 14);
+    for(int x = 0; x < SCREEN_W; x++) g->terrain[x] = flat_y;
+
+    /* Single landing pad centred on screen, 1x multiplier */
+    g->num_pads  = 1;
+    int pad_x    = (SCREEN_W - PAD_W) / 2;
+    g->pad_x[0]  = (uint8_t)pad_x;
+    g->pad_mul[0] = 1;
+
+    g->x  = (float)SCREEN_W / 2.0f;
+    g->y  = 6.0f;
+    g->vx = 0.0f;
+    g->vy = 0.0f;
+    g->angle = 0.0f;
+    g->fuel  = START_FUEL;
+    g->fuel_at_level_start = START_FUEL;
+    g->status      = GameStatusFlying;
+    g->status_time = 0.0f;
+    g->elapsed     = 0.0f;
+    g->needs_tilt_cal    = true;
+    g->tilt_pitch_offset = 0.0f;
+    g->tilt_roll_offset  = 0.0f;
 }
 
 /* ----- Input ------------------------------------------------------------- */
@@ -341,11 +376,15 @@ static void check_collision(GameState* g) {
 
     if (on_flat && slow_enough && upright) {
         g->status = GameStatusLanded;
-        /* score = fuel_left * multiplier * (HIGHEST_LEVEL - level + 1) */
-        int mult = (int)g->pad_mul[pad_idx];
-        int level_bonus = HIGHEST_LEVEL - g->level + 1;
-        if (level_bonus < 1) level_bonus = 1;  // safety if user plays beyond HIGHEST_LEVEL
-        g->score += (int)g->fuel * mult * level_bonus;
+        if(g->is_tutorial) {
+            g->score += 1;
+        } else {
+            /* score = fuel_left * multiplier * (HIGHEST_LEVEL - level + 1) */
+            int mult = (int)g->pad_mul[pad_idx];
+            int level_bonus = HIGHEST_LEVEL - g->level + 1;
+            if(level_bonus < 1) level_bonus = 1;
+            g->score += (int)g->fuel * mult * level_bonus;
+        }
         g->sfx_remaining = SFX_LAND_DUR;
         g->sfx_freq = SFX_LAND_FREQ;
         g->sfx_vibrate = false;
@@ -423,7 +462,7 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
     }
 
     /* Gravity */
-    g->vy += GRAVITY * dt;
+    g->vy += GRAVITY * g->gravity_scale * dt;
 
     /* Integrate */
     g->x += g->vx * dt;
@@ -553,8 +592,8 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
      * has fallen below the bottom of the top line of HUD text (~y=7).
      * Body top is at g->y + LANDER_BODY_TOP (=g->y - 3); the +1 margin keeps
      * it from popping in the moment the body grazes the text line. */
-    if (g->y > 11.0f) {
-        snprintf(buf, sizeof(buf), "L%d", g->level);
+    if(g->y > 11.0f) {
+        snprintf(buf, sizeof(buf), g->is_tutorial ? "T%d" : "L%d", g->level);
         canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, buf);
     }
 
@@ -594,7 +633,9 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
     switch (g->status) {
         case GameStatusLanded:
             line1 = "LANDED!";
-            line2 = "OK: next  Back: menu";
+            line2 = (g->is_tutorial && g->level >= 2)
+                  ? "OK: done  Back: menu"
+                  : "OK: next  Back: menu";
             break;
         case GameStatusCrashed:
             line1 = "CRASHED";
