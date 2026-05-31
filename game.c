@@ -187,6 +187,7 @@ static void pads_place(GameState* g) {
             g->terrain[px + dx] = (uint8_t)flat_y;
         }
         g->pad_x[i] = (uint8_t)px;
+        g->pad_w[i] = PAD_W;
     }
 
     /* Assign multipliers based on distance of each pad's center from the
@@ -253,11 +254,22 @@ void game_init_tutorial(GameState* g, int tut_level, int score) {
     uint8_t flat_y = (uint8_t)(TERRAIN_BOT_Y - 14);
     for(int x = 0; x < SCREEN_W; x++) g->terrain[x] = flat_y;
 
-    /* Single landing pad centred on screen, 1x multiplier */
-    g->num_pads  = 1;
-    int pad_x    = (SCREEN_W - PAD_W) / 2;
-    g->pad_x[0]  = (uint8_t)pad_x;
-    g->pad_mul[0] = 1;
+    if(tut_level == 1) {
+        /* Entire floor is the landing zone */
+        g->num_pads   = 1;
+        g->pad_x[0]   = 0;
+        g->pad_w[0]   = SCREEN_W;
+        g->pad_mul[0] = 1;
+    } else {
+        /* Two standard-width pads centred at 1/3 and 2/3 of screen width */
+        g->num_pads = 2;
+        g->pad_x[0]   = (uint8_t)(SCREEN_W / 3 - PAD_W / 2);
+        g->pad_w[0]   = PAD_W;
+        g->pad_mul[0] = 1;
+        g->pad_x[1]   = (uint8_t)(2 * SCREEN_W / 3 - PAD_W / 2);
+        g->pad_w[1]   = PAD_W;
+        g->pad_mul[1] = 1;
+    }
 
     g->x  = (float)SCREEN_W / 2.0f;
     g->y  = 6.0f;
@@ -339,7 +351,7 @@ GameAction game_input(GameState* g, const InputEvent* ev) {
 static int on_pad_idx(const GameState* g, int x_left, int x_right) {
     for (int i = 0; i < g->num_pads; i++) {
         int px = g->pad_x[i];
-        if (x_left >= px && x_right <= px + PAD_W - 1) return i;
+        if (x_left >= px && x_right <= px + (int)g->pad_w[i] - 1) return i;
     }
     return -1;
 }
@@ -548,23 +560,25 @@ static void draw_terrain(Canvas* canvas, const GameState* g) {
         int px = g->pad_x[i];
         int py = g->terrain[px];
 
+        int pw = (int)g->pad_w[i];
+
         /* Second pixel row immediately below the pad surface */
         if (py + 1 < SCREEN_H) {
-            canvas_draw_line(canvas, px, py + 1, px + PAD_W - 1, py + 1);
+            canvas_draw_line(canvas, px, py + 1, px + pw - 1, py + 1);
         }
 
         char buf[8];
         snprintf(buf, sizeof(buf), "%dx", (int)g->pad_mul[i]);
 
         /* Prefer below; fall back to above if it would clip. */
-        int label_top_below = py + 3;                 // pad surface = py, +1 thickness, +1 gap
-        int label_top_above = py - 2 - label_h;       // baseline 2 above pad, text grows up
+        int label_top_below = py + 3;
+        int label_top_above = py - 2 - label_h;
         if (label_top_below + label_h <= SCREEN_H) {
             canvas_draw_str_aligned(
-                canvas, px + PAD_W / 2, label_top_below, AlignCenter, AlignTop, buf);
+                canvas, px + pw / 2, label_top_below, AlignCenter, AlignTop, buf);
         } else if (label_top_above >= 0) {
             canvas_draw_str_aligned(
-                canvas, px + PAD_W / 2, py - 2, AlignCenter, AlignBottom, buf);
+                canvas, px + pw / 2, py - 2, AlignCenter, AlignBottom, buf);
         }
         /* No label at all when both positions would clip; the thick pad
          * itself still marks the landing zone. */
@@ -721,6 +735,67 @@ static void draw_dim_overlay(Canvas* canvas) {
         for(; x < SCREEN_W; x += 5) {
             canvas_draw_dot(canvas, x, y);
         }
+    }
+}
+
+void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_mode) {
+    int bx = 2, by = 1, bw = 124, bh = 62;
+    canvas_set_color(canvas, ColorWhite);
+    canvas_draw_box(canvas, bx, by, bw, bh);
+    canvas_set_color(canvas, ColorBlack);
+    canvas_draw_rframe(canvas, bx, by, bw, bh, 3);
+
+    int cx = SCREEN_W / 2;
+
+    if(tut_level == 1) {
+        canvas_set_font(canvas, FontPrimary);
+        canvas_draw_str_aligned(canvas, cx, by + 7, AlignCenter, AlignCenter, "Controls");
+        canvas_draw_line(canvas, bx + 2, by + 13, bx + bw - 3, by + 13);
+        canvas_set_font(canvas, FontSecondary);
+
+        const char* thrust_str;
+        switch(thrust_mode) {
+            case ThrustModeVidyaFull:
+            case ThrustModeVidyaRamp:
+                thrust_str = "Tilt fwd = ramp thruster"; break;
+            case ThrustModeRamp:
+                thrust_str = "UP = ramp thruster";       break;
+            case ThrustModeTapImpulse:
+            case ThrustModeVidyaTap:
+                thrust_str = "UP = burst thruster";      break;
+            default:
+                thrust_str = "UP = engage thruster";     break;
+        }
+        bool is_vidya = (thrust_mode >= ThrustModeVidyaTap);
+        const char* rotate_str = is_vidya ? "L/R tilt = rotate" : "L/R = rotate";
+
+        canvas_draw_str_aligned(canvas, cx, by + 19, AlignCenter, AlignCenter, thrust_str);
+        canvas_draw_str_aligned(canvas, cx, by + 27, AlignCenter, AlignCenter, rotate_str);
+        canvas_draw_str_aligned(canvas, cx, by + 36, AlignCenter, AlignCenter, "Land slow & upright:");
+
+        /* line about safe landing params: "Vy<8  Vx<4  θ<12°" with pixel-art θ and ° */
+        const char* prefix    = "Vy<8  Vx<4  ";
+        const char* angle_str = "<12";
+        int prefix_w    = (int)canvas_string_width(canvas, prefix);
+        int angle_str_w = (int)canvas_string_width(canvas, angle_str);
+        int total_w = prefix_w + 6 + angle_str_w + 4;
+        int line_cy = by + 46;
+        int x = cx - total_w / 2;
+        canvas_draw_str(canvas, x, line_cy + 3, prefix);
+        x += prefix_w;
+        draw_theta(canvas, x, line_cy - 4);
+        x += 6;
+        canvas_draw_str(canvas, x, line_cy + 3, angle_str);
+        x += angle_str_w + 1;
+        draw_degree_sym(canvas, x, line_cy - 3);
+
+        canvas_draw_str_aligned(canvas, cx, by + 56, AlignCenter, AlignCenter, "OK to begin");
+    } else {
+        canvas_set_font(canvas, FontPrimary);
+        canvas_draw_str_aligned(canvas, cx, by + 18, AlignCenter, AlignCenter, "Full gravity on.");
+        canvas_set_font(canvas, FontSecondary);
+        canvas_draw_str_aligned(canvas, cx, by + 33, AlignCenter, AlignCenter, "Land on a pad.");
+        canvas_draw_str_aligned(canvas, cx, by + 50, AlignCenter, AlignCenter, "OK to begin");
     }
 }
 

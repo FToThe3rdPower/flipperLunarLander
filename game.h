@@ -51,6 +51,7 @@ typedef struct {
     uint32_t rng_state;
     uint8_t terrain[SCREEN_W];     // y of ground at each column
     uint8_t pad_x[MAX_PADS];       // left edge of each pad
+    uint8_t pad_w[MAX_PADS];       // width of each pad in pixels
     uint8_t pad_mul[MAX_PADS];     // score multiplier per pad
     uint8_t num_pads;
 
@@ -91,6 +92,7 @@ void game_init_tutorial(GameState* g, int tut_level, int score);
 GameAction game_input(GameState* g, const InputEvent* ev);
 void game_tick(GameState* g, ThrustMode mode, float dt);
 void game_draw(Canvas* canvas, const GameState* g);
+void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_mode);
 
 /* Audio control. start/stop on entering/leaving the game screen; update once
  * per tick. start may quietly fail if the speaker is in use by another app —

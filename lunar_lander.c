@@ -39,7 +39,8 @@ typedef struct {
     int settings_focus;   // 0 = sound row, 1 = vibration row; reset on entering ScreenSettings
     VgmTilt* vgm;         // non-NULL while a VGM tilt mode is active
     bool tutorial_active;
-    int  tutorial_level;  // 1 or 2
+    int  tutorial_level;          // 1 or 2
+    bool tutorial_popup_showing;  // physics paused; waiting for OK to dismiss
 } AppModel;
 
 typedef struct {
@@ -71,6 +72,7 @@ static void draw_setting_row(
     canvas_set_color(canvas, ColorBlack);
 }
 
+
 static void draw_callback(Canvas* canvas, void* ctx) {
     App* app = ctx;
     if (furi_mutex_acquire(app->mutex, 25) != FuriStatusOk) return;
@@ -82,15 +84,13 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             break;
         case ScreenGame:
             game_draw(canvas, &app->model.game);
+            if(app->model.tutorial_active && app->model.tutorial_popup_showing) {
+                game_draw_tutorial_popup(canvas,
+                                    app->model.tutorial_level,
+                                    app->model.menu.thrust_mode);
+            }
             break;
-        case ScreenTutorial:
-            canvas_set_font(canvas, FontPrimary);
-            canvas_draw_str_aligned(
-                canvas, SCREEN_W / 2, 24, AlignCenter, AlignCenter, "TUTORIAL");
-            canvas_set_font(canvas, FontSecondary);
-            canvas_draw_str_aligned(
-                canvas, SCREEN_W / 2, 40, AlignCenter, AlignCenter, "Coming soon. Press Back.");
-            break;
+        case ScreenTutorial: break; /* tutorial now runs on ScreenGame */
         case ScreenInfo: {
             canvas_set_font(canvas, FontPrimary);
             canvas_draw_str_aligned(
@@ -161,6 +161,7 @@ static void set_screen(AppModel* m, Screen new_screen) {
         game_audio_start();
         if(m->tutorial_active) {
             game_init_tutorial(&m->game, m->tutorial_level, 0);
+            m->tutorial_popup_showing = true;
         } else {
             FuelMode fm = m->menu.fuel_mode;
             int start_fuel = fuel_mode_starting[fm];
@@ -213,6 +214,13 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                 game_apply_tap_impulse(&m->game);
             }
 
+            /* Dismiss tutorial popup (both intro and transition). */
+            if(m->tutorial_popup_showing &&
+               ev->type == InputTypeShort && ev->key == InputKeyOk) {
+                m->tutorial_popup_showing = false;
+                break;
+            }
+
             /* Tutorial: intercept OK on status screens so we control level
              * advancement instead of game_input's normal campaign logic. */
             if(m->tutorial_active &&
@@ -222,6 +230,7 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                     if(m->tutorial_level < 2) {
                         m->tutorial_level++;
                         game_init_tutorial(&m->game, m->tutorial_level, m->game.score);
+                        m->tutorial_popup_showing = true;  // show transition popup
                     } else {
                         m->tutorial_active = false;
                         set_screen(m, ScreenMenu);
@@ -282,6 +291,7 @@ static void handle_input_event(App* app, const InputEvent* ev) {
 static void handle_tick(App* app, float dt) {
     if(app->model.screen == ScreenGame) {
         AppModel* m = &app->model;
+        if(m->tutorial_popup_showing) return;
         if(m->vgm && vgm_tilt_present(m->vgm)) {
             m->game.tilt_pitch = vgm_tilt_roll(m->vgm);
             m->game.tilt_roll  = vgm_tilt_pitch(m->vgm);
