@@ -38,8 +38,7 @@ typedef struct {
     GameState game;
     int settings_focus;   // 0 = sound row, 1 = vibration row; reset on entering ScreenSettings
     VgmTilt* vgm;         // non-NULL while a VGM tilt mode is active
-    bool tutorial_active;
-    int  tutorial_level;          // 1 or 2
+    int  tutorial_level;          // 1 or 2 (valid when screen == ScreenTutorial)
     bool tutorial_popup_showing;  // physics paused; waiting for OK to dismiss
 } AppModel;
 
@@ -84,13 +83,15 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             break;
         case ScreenGame:
             game_draw(canvas, &app->model.game);
-            if(app->model.tutorial_active && app->model.tutorial_popup_showing) {
+            break;
+        case ScreenTutorial:
+            game_draw(canvas, &app->model.game);
+            if(app->model.tutorial_popup_showing) {
                 game_draw_tutorial_popup(canvas,
-                                    app->model.tutorial_level,
-                                    app->model.menu.thrust_mode);
+                                         app->model.tutorial_level,
+                                         app->model.menu.thrust_mode);
             }
             break;
-        case ScreenTutorial: break; /* tutorial now runs on ScreenGame */
         case ScreenInfo: {
             canvas_set_font(canvas, FontPrimary);
             canvas_draw_str_aligned(
@@ -152,22 +153,25 @@ static void tick_timer_callback(void* ctx) {
  * plus settings-screen focus reset. */
 static void set_screen(AppModel* m, Screen new_screen) {
     Screen old = m->screen;
-    if(old == ScreenGame && new_screen != ScreenGame) {
+    bool old_live = (old == ScreenGame || old == ScreenTutorial);
+    bool new_live = (new_screen == ScreenGame || new_screen == ScreenTutorial);
+
+    if(old_live && !new_live) {
         game_audio_stop();
         if(m->vgm) { vgm_tilt_free(m->vgm); m->vgm = NULL; }
     }
     m->screen = new_screen;
-    if(new_screen == ScreenGame && old != ScreenGame) {
+    if(new_live && !old_live) {
         game_audio_start();
-        if(m->tutorial_active) {
-            game_init_tutorial(&m->game, m->tutorial_level, 0);
+        if(new_screen == ScreenTutorial) {
+            m->tutorial_level = 1;
+            game_init_tutorial(&m->game, 1, 0);
             m->tutorial_popup_showing = true;
         } else {
             FuelMode fm = m->menu.fuel_mode;
             int start_fuel = fuel_mode_starting[fm];
             game_init(&m->game, 1, 0, fm, start_fuel);
         }
-
         bool is_vidya = (m->menu.thrust_mode >= ThrustModeVidyaTap);
         if(is_vidya) {
             m->vgm = vgm_tilt_alloc();
@@ -181,15 +185,8 @@ static void set_screen(AppModel* m, Screen new_screen) {
 
 static void handle_menu_action(AppModel* m, MenuAction action) {
     switch (action) {
-        case MenuActionStart:
-            m->tutorial_active = false;
-            set_screen(m, ScreenGame);
-            break;
-        case MenuActionTutorial:
-            m->tutorial_active = true;
-            m->tutorial_level  = 1;
-            set_screen(m, ScreenGame);
-            break;
+        case MenuActionStart:    set_screen(m, ScreenGame);     break;
+        case MenuActionTutorial: set_screen(m, ScreenTutorial); break;
         case MenuActionInfo:     set_screen(m, ScreenInfo); break;
         case MenuActionSettings: set_screen(m, ScreenSettings); break;
         case MenuActionExit:     m->should_exit = true; break;
@@ -207,46 +204,45 @@ static void handle_input_event(App* app, const InputEvent* ev) {
             break;
         }
         case ScreenGame: {
-            /* Fire tap impulse on Up-press for both tap modes. */
             if((m->menu.thrust_mode == ThrustModeTapImpulse ||
                 m->menu.thrust_mode == ThrustModeVidyaTap) &&
                ev->key == InputKeyUp && ev->type == InputTypePress) {
                 game_apply_tap_impulse(&m->game);
             }
-
-            /* Dismiss tutorial popup (both intro and transition). */
+            GameAction a = game_input(&m->game, ev);
+            if(a == GameActionExitToMenu) set_screen(m, ScreenMenu);
+            break;
+        }
+        case ScreenTutorial: {
+            if((m->menu.thrust_mode == ThrustModeTapImpulse ||
+                m->menu.thrust_mode == ThrustModeVidyaTap) &&
+               ev->key == InputKeyUp && ev->type == InputTypePress) {
+                game_apply_tap_impulse(&m->game);
+            }
+            /* Dismiss intro or transition popup. */
             if(m->tutorial_popup_showing &&
                ev->type == InputTypeShort && ev->key == InputKeyOk) {
                 m->tutorial_popup_showing = false;
                 break;
             }
-
-            /* Tutorial: intercept OK on status screens so we control level
-             * advancement instead of game_input's normal campaign logic. */
-            if(m->tutorial_active &&
-               ev->type == InputTypeShort && ev->key == InputKeyOk &&
+            /* Level advance / retry. */
+            if(ev->type == InputTypeShort && ev->key == InputKeyOk &&
                m->game.status != GameStatusFlying) {
                 if(m->game.status == GameStatusLanded) {
                     if(m->tutorial_level < 2) {
                         m->tutorial_level++;
                         game_init_tutorial(&m->game, m->tutorial_level, m->game.score);
-                        m->tutorial_popup_showing = true;  // show transition popup
+                        m->tutorial_popup_showing = true;
                     } else {
-                        m->tutorial_active = false;
                         set_screen(m, ScreenMenu);
                     }
                 } else {
-                    /* Crashed or out of fuel — retry same tutorial level */
                     game_init_tutorial(&m->game, m->tutorial_level, m->game.score);
                 }
                 break;
             }
-
             GameAction a = game_input(&m->game, ev);
-            if(a == GameActionExitToMenu) {
-                m->tutorial_active = false;
-                set_screen(m, ScreenMenu);
-            }
+            if(a == GameActionExitToMenu) set_screen(m, ScreenMenu);
             break;
         }
         case ScreenSettings: {
@@ -278,7 +274,6 @@ static void handle_input_event(App* app, const InputEvent* ev) {
             }
             break;
         }
-        case ScreenTutorial:
         case ScreenInfo:
             if (ev->key == InputKeyBack &&
                 (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
@@ -289,7 +284,7 @@ static void handle_input_event(App* app, const InputEvent* ev) {
 }
 
 static void handle_tick(App* app, float dt) {
-    if(app->model.screen == ScreenGame) {
+    if(app->model.screen == ScreenGame || app->model.screen == ScreenTutorial) {
         AppModel* m = &app->model;
         if(m->tutorial_popup_showing) return;
         if(m->vgm && vgm_tilt_present(m->vgm)) {
