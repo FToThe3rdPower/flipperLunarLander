@@ -72,6 +72,22 @@ static void draw_setting_row(
 }
 
 
+/* Selector row for multi-value settings (e.g. Difficulty). Shows < > arrows
+ * on the sides when focused, label on the left, current value on the right. */
+static void draw_setting_selector(
+    Canvas* canvas, int y, const char* label, const char* value, bool focused) {
+    if(focused) {
+        canvas_draw_rbox(canvas, 2, y, SCREEN_W - 4, 12, 2);
+        canvas_set_color(canvas, ColorWhite);
+    } else {
+        canvas_draw_rframe(canvas, 2, y, SCREEN_W - 4, 12, 2);
+    }
+    canvas_set_font(canvas, FontSecondary);
+    canvas_draw_str_aligned(canvas, 7,           y + 6, AlignLeft,  AlignCenter, label);
+    canvas_draw_str_aligned(canvas, SCREEN_W - 7, y + 6, AlignRight, AlignCenter, value);
+    canvas_set_color(canvas, ColorBlack);
+}
+
 static void draw_callback(Canvas* canvas, void* ctx) {
     App* app = ctx;
     if (furi_mutex_acquire(app->mutex, 25) != FuriStatusOk) return;
@@ -89,7 +105,8 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             if(app->model.tutorial_popup_showing) {
                 game_draw_tutorial_popup(canvas,
                                          app->model.tutorial_level,
-                                         app->model.menu.thrust_mode);
+                                         app->model.menu.thrust_mode,
+                                         &app->model.game);
             }
             break;
         case ScreenInfo: {
@@ -121,12 +138,15 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             draw_setting_row(canvas, 16, "Sound",
                              app->model.menu.sound_on,
                              app->model.settings_focus == 0);
-            draw_setting_row(canvas, 30, "Vibration",
+            draw_setting_row(canvas, 29, "Vibration",
                              app->model.menu.vibration_on,
                              app->model.settings_focus == 1);
+            draw_setting_selector(canvas, 42, "Difficulty",
+                                  difficulty_label[app->model.menu.difficulty],
+                                  app->model.settings_focus == 2);
             canvas_set_font(canvas, FontSecondary);
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, SCREEN_H - 1,
-                AlignCenter, AlignBottom, "OK toggles, Back returns");
+                AlignCenter, AlignBottom, "OK/L/R change  Back: return");
             break;
         }
     }
@@ -165,12 +185,12 @@ static void set_screen(AppModel* m, Screen new_screen) {
         game_audio_start();
         if(new_screen == ScreenTutorial) {
             m->tutorial_level = 1;
-            game_init_tutorial(&m->game, 1, 0);
+            game_init_tutorial(&m->game, 1, 0, m->menu.difficulty);
             m->tutorial_popup_showing = true;
         } else {
             FuelMode fm = m->menu.fuel_mode;
             int start_fuel = fuel_mode_starting[fm];
-            game_init(&m->game, 1, 0, fm, start_fuel);
+            game_init(&m->game, 1, 0, fm, start_fuel, m->menu.difficulty);
         }
         bool is_vidya = (m->menu.thrust_mode >= ThrustModeVidyaTap);
         if(is_vidya) {
@@ -231,13 +251,13 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                 if(m->game.status == GameStatusLanded) {
                     if(m->tutorial_level < 2) {
                         m->tutorial_level++;
-                        game_init_tutorial(&m->game, m->tutorial_level, m->game.score);
+                        game_init_tutorial(&m->game, m->tutorial_level, m->game.score, m->menu.difficulty);
                         m->tutorial_popup_showing = true;
                     } else {
                         set_screen(m, ScreenMenu);
                     }
                 } else {
-                    game_init_tutorial(&m->game, m->tutorial_level, m->game.score);
+                    game_init_tutorial(&m->game, m->tutorial_level, m->game.score, m->menu.difficulty);
                 }
                 break;
             }
@@ -252,19 +272,23 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                     if (m->settings_focus > 0) m->settings_focus--;
                     break;
                 case InputKeyDown:
-                    if (m->settings_focus < 1) m->settings_focus++;
+                    if (m->settings_focus < 2) m->settings_focus++;
                     break;
                 case InputKeyLeft:
+                    if (m->settings_focus == 2)
+                        m->menu.difficulty = (m->menu.difficulty + DifficultyCount - 1) % DifficultyCount;
+                    else if (m->settings_focus == 0) m->menu.sound_on     = !m->menu.sound_on;
+                    else                             m->menu.vibration_on = !m->menu.vibration_on;
+                    break;
                 case InputKeyRight:
+                    if (m->settings_focus == 2)
+                        m->menu.difficulty = (m->menu.difficulty + 1) % DifficultyCount;
+                    else if (m->settings_focus == 0) m->menu.sound_on     = !m->menu.sound_on;
+                    else                             m->menu.vibration_on = !m->menu.vibration_on;
+                    break;
                 case InputKeyOk:
-                    /* All three flip the focused toggle. Left/Right are here so
-                     * users who learned the menu's L/R-cycles-options rhythm
-                     * don't have to switch to OK on this screen. */
-                    if (m->settings_focus == 0) {
-                        m->menu.sound_on = !m->menu.sound_on;
-                    } else {
-                        m->menu.vibration_on = !m->menu.vibration_on;
-                    }
+                    if (m->settings_focus == 0)      m->menu.sound_on     = !m->menu.sound_on;
+                    else if (m->settings_focus == 1) m->menu.vibration_on = !m->menu.vibration_on;
                     break;
                 case InputKeyBack:
                     set_screen(m, ScreenMenu);

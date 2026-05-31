@@ -44,3 +44,13 @@ typedef enum {
     ScreenInfo,
     ScreenSettings,
 } Screen;
+
+typedef enum {
+    DifficultyEasy = 0,  // safe thresholds doubled
+    DifficultyMedium,    // baseline (original values)
+    DifficultyHard,      // safe thresholds halved
+    DifficultyRealistic, // Vy<1, Vx<1, angle<3°
+    DifficultyCount,
+} Difficulty;
+
+extern const char* const difficulty_label[DifficultyCount];

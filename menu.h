@@ -45,6 +45,7 @@ typedef struct {
     MenuTitleSel title_sel;
     ThrustMode   thrust_mode;
     FuelMode     fuel_mode;
+    Difficulty   difficulty;
     bool         sound_on;
     bool         vibration_on;
 } MenuState;

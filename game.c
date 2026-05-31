@@ -207,7 +207,16 @@ static void pads_place(GameState* g) {
 
 /* ----- Init -------------------------------------------------------------- */
 
-void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int starting_fuel) {
+static void apply_difficulty(GameState* g, Difficulty d) {
+    switch(d) {
+        case DifficultyEasy:       g->safe_vy = 16.0f; g->safe_vx = 8.0f; g->safe_angle = 0.44f;  break;
+        case DifficultyHard:       g->safe_vy =  4.0f; g->safe_vx = 2.0f; g->safe_angle = 0.11f;  break;
+        case DifficultyRealistic:  g->safe_vy =  1.0f; g->safe_vx = 1.0f; g->safe_angle = 0.052f; break;
+        default: /* Medium */      g->safe_vy =  8.0f; g->safe_vx = 4.0f; g->safe_angle = 0.22f;  break;
+    }
+}
+
+void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int starting_fuel, Difficulty difficulty) {
     memset(g, 0, sizeof(*g));
     g->level = level;
     g->score = score;
@@ -240,9 +249,11 @@ void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int start
     g->tilt_roll_offset  = 0.0f;
     g->gravity_scale = 1.0f;
     g->is_tutorial   = false;
+    g->difficulty    = difficulty;
+    apply_difficulty(g, difficulty);
 }
 
-void game_init_tutorial(GameState* g, int tut_level, int score) {
+void game_init_tutorial(GameState* g, int tut_level, int score, Difficulty difficulty) {
     memset(g, 0, sizeof(*g));
     g->level       = tut_level;
     g->score       = score;
@@ -284,6 +295,8 @@ void game_init_tutorial(GameState* g, int tut_level, int score) {
     g->needs_tilt_cal    = true;
     g->tilt_pitch_offset = 0.0f;
     g->tilt_roll_offset  = 0.0f;
+    g->difficulty        = difficulty;
+    apply_difficulty(g, difficulty);
 }
 
 /* ----- Input ------------------------------------------------------------- */
@@ -329,16 +342,18 @@ GameAction game_input(GameState* g, const InputEvent* ev) {
             if (next > HIGHEST_LEVEL) next = 1;  // wrap; later: "You win!" screen
             /* Capture campaign state before memset wipes it. */
             FuelMode mode = g->fuel_mode;
+            Difficulty diff = g->difficulty;
             int score = g->score;
             int next_fuel = (mode == FuelModeFull) ? (int)START_FUEL : (int)g->fuel;
-            game_init(g, next, score, mode, next_fuel);
+            game_init(g, next, score, mode, next_fuel, diff);
         } else if (g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) {
             FuelMode mode = g->fuel_mode;
+            Difficulty diff = g->difficulty;
             int score = g->score;
             int level = g->level;
             int retry_fuel =
                 (mode == FuelModeFull) ? (int)START_FUEL : (int)g->fuel_at_level_start;
-            game_init(g, level, score, mode, retry_fuel);
+            game_init(g, level, score, mode, retry_fuel, diff);
         }
     }
 
@@ -383,8 +398,8 @@ static void check_collision(GameState* g) {
     int xmax = lxi > rxi ? lxi : rxi;
     int pad_idx = on_pad_idx(g, xmin, xmax);
     bool on_flat = (pad_idx >= 0);
-    bool slow_enough = (fabsf(g->vy) < SAFE_VY) && (fabsf(g->vx) < SAFE_VX);
-    bool upright = fabsf(g->angle) < SAFE_ANGLE;
+    bool slow_enough = (fabsf(g->vy) < g->safe_vy) && (fabsf(g->vx) < g->safe_vx);
+    bool upright = fabsf(g->angle) < g->safe_angle;
 
     if (on_flat && slow_enough && upright) {
         g->status = GameStatusLanded;
@@ -663,9 +678,9 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
     }
 
     bool is_crash   = (g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel);
-    bool vx_bad     = fabsf(g->land_vx)    >= SAFE_VX;
-    bool vy_bad     = fabsf(g->land_vy)    >= SAFE_VY;
-    bool angle_bad  = is_crash && fabsf(g->land_angle) >= SAFE_ANGLE;
+    bool vx_bad     = fabsf(g->land_vx)    >= g->safe_vx;
+    bool vy_bad     = fabsf(g->land_vy)    >= g->safe_vy;
+    bool angle_bad  = is_crash && fabsf(g->land_angle) >= g->safe_angle;
     bool blink_hide = is_crash && (((int)(g->status_time * 3.0f) % 2) == 1);
 
     /* Banner grows a line when angle also caused the crash. */
@@ -738,7 +753,7 @@ static void draw_dim_overlay(Canvas* canvas) {
     }
 }
 
-void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_mode) {
+void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_mode, const GameState* g) {
     int bx = 2, by = 1, bw = 124, bh = 62;
     canvas_set_color(canvas, ColorWhite);
     canvas_draw_box(canvas, bx, by, bw, bh);
@@ -773,9 +788,12 @@ void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_m
         canvas_draw_str_aligned(canvas, cx, by + 27, AlignCenter, AlignCenter, rotate_str);
         canvas_draw_str_aligned(canvas, cx, by + 36, AlignCenter, AlignCenter, "Land slow & upright:");
 
-        /* line about safe landing params: "Vy<8  Vx<4  θ<12°" with pixel-art θ and ° */
-        const char* prefix    = "Vy<8  Vx<4  ";
-        const char* angle_str = "<12";
+        /* Criteria line: dynamic values from difficulty */
+        char prefix[20];
+        snprintf(prefix, sizeof(prefix), "Vy<%d  Vx<%d  ", (int)g->safe_vy, (int)g->safe_vx);
+        char angle_str[8];
+        int angle_deg = (int)(g->safe_angle * (180.0f / 3.14159265f) + 0.5f);
+        snprintf(angle_str, sizeof(angle_str), "<%d", angle_deg);
         int prefix_w    = (int)canvas_string_width(canvas, prefix);
         int angle_str_w = (int)canvas_string_width(canvas, angle_str);
         int total_w = prefix_w + 6 + angle_str_w + 4;

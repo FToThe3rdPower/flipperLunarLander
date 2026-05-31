@@ -70,8 +70,14 @@ typedef struct {
     float    fuel_at_level_start;
 
     /* Tutorial mode. gravity_scale=0.5 on tutorial level 1, 1.0 otherwise. */
-    bool  is_tutorial;
-    float gravity_scale;
+    bool       is_tutorial;
+    float      gravity_scale;
+    Difficulty difficulty;
+
+    /* Safe landing thresholds — set from Difficulty at game_init time. */
+    float safe_vy;
+    float safe_vx;
+    float safe_angle;
 
     /* Sound effects (one-shot, drives both speaker and vibro briefly) */
     float sfx_remaining;  // seconds left on the current SFX, 0 = none
@@ -86,13 +92,13 @@ typedef struct {
  *                  this — typically fuel_mode_starting[mode] on a fresh start,
  *                  the previous level's remaining fuel on advance (no-refuel),
  *                  or fuel_at_level_start on retry. */
-void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int starting_fuel);
+void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int starting_fuel, Difficulty difficulty);
 /* Tutorial variant: flat terrain, single centred pad, half-gravity on level 1. */
-void game_init_tutorial(GameState* g, int tut_level, int score);
+void game_init_tutorial(GameState* g, int tut_level, int score, Difficulty difficulty);
 GameAction game_input(GameState* g, const InputEvent* ev);
 void game_tick(GameState* g, ThrustMode mode, float dt);
 void game_draw(Canvas* canvas, const GameState* g);
-void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_mode);
+void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_mode, const GameState* g);
 
 /* Audio control. start/stop on entering/leaving the game screen; update once
  * per tick. start may quietly fail if the speaker is in use by another app —

@@ -27,6 +27,13 @@ const char* const thrust_mode_desc[ThrustModeCount] = {
     "Tilt steers + fires thrusters",
 };
 
+const char* const difficulty_label[DifficultyCount] = {
+    "Easy",
+    "Medium",
+    "Hard",
+    "Realistic",
+};
+
 const char* const fuel_mode_label[FuelModeCount] = {
     "Full fuel each lvl",
     "No refuel, Easy: 500",
@@ -184,6 +191,7 @@ void menu_draw(Canvas* canvas, const MenuState* m) {
 void menu_init(MenuState* m) {
     m->thrust_mode  = ThrustModeTapImpulse;
     m->fuel_mode    = FuelModeFull;
+    m->difficulty   = DifficultyMedium;
     m->btn          = MenuBtnStart;
     m->row          = MenuRowThrust;
     m->title_sel    = MenuTitleSelAbout;
