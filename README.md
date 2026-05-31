@@ -13,7 +13,9 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [x] Vibration on thrust and crashes (no vibration on successful landing)
 - [x] Crash flash — screen inverts at 10 Hz for 0.5 sec before the CRASHED banner appears
 - [x] Info screen with credit text (reached via OK on the menu title bar)
-- [ ] Per-pad varied multipliers (all currently default to 2x)
+- [x] Per-pad varied multipliers (all currently default to 2x)
+- [x] Video Game Module tilt control support
+- [x] Crash banner explains what was wrong by flashing the velocities or angle that weren't acceptable
 - [ ] Tutorial screen (placeholder)
 - [ ] Persisted high score
 - [ ] "Game complete" screen when finishing HIGHEST_LEVEL (currently wraps to level 1)
