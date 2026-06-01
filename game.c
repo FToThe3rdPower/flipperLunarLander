@@ -30,8 +30,8 @@
 #define GRAVITY            6.0f    // pixels/sec^2 downward
 #define THRUST_MAX         18.0f   // pixels/sec^2 along lander up-axis at full thrust
 #define IMPULSE_DV         5.0f    // velocity change per tap (TapImpulse mode)
-#define IMPULSE_FUEL       2.5f
-#define RAMP_TIME          0.7f    // seconds from 0 -> full thrust in Ramp mode was 0.7
+#define IMPULSE_FUEL       2.0f
+#define RAMP_TIME          0.5f    // seconds from 0 -> full thrust in Ramp mode was 0.7
 #define FUEL_BURN_RATE     12.0f   // units/sec at full thrust
 #define ROT_RATE           1.8f    // radians/sec while Left/Right held
 #define WRAP_X             1       // wrap horizontally (classic)
@@ -43,16 +43,16 @@
 /* VGM tilt control parameters */
 #define TILT_STEER_DEAD    5.0f    // roll dead-zone (degrees) before steering starts
 #define TILT_STEER_MAX    45.0f    // roll degrees that yield full ROT_RATE
-#define TILT_THRUST_DEAD   5.0f    // pitch dead-zone (degrees) before thrust starts
-#define TILT_THRUST_MAX   75.0f    // pitch degrees that yield 100% thrust
+#define TILT_THRUST_DEAD   3.0f    // pitch dead-zone (degrees) before thrust starts
+#define TILT_THRUST_MAX   35.0f    // pitch degrees that yield 100% thrust
 
 #define START_FUEL         100.0f
 
 /* ----- Audio / feedback tunables ----------------------------------------- */
-#define AUDIO_VOLUME       1.0f    // 0.0 to 1.0
+#define AUDIO_VOLUME       0.5f    // 0.0 to 1.0
 #define THRUST_FREQ_MIN    220      // Hz at near-zero thrust
 #define THRUST_FREQ_MAX    440     // Hz at full thrust
-#define SFX_LAND_FREQ      440     // Hz
+#define SFX_LAND_FREQ      880     // Hz
 #define SFX_LAND_DUR       0.25f   // sec
 #define SFX_CRASH_FREQ     100      // Hz
 #define SFX_CRASH_DUR      0.50f   // sec
