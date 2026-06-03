@@ -203,6 +203,20 @@ static void pads_place(GameState* g) {
         else                            mul = 5;
         g->pad_mul[i] = mul;
     }
+
+    /* Shrink high-multiplier pads to match their difficulty: 3×→12px, 5×→8px.
+     * Terrain was already flattened for PAD_W; the extra flat shelf around the
+     * active zone is intentional — it makes the narrowing visible. */
+    for (int i = 0; i < g->num_pads; i++) {
+        int new_w = PAD_W;
+        if      (g->pad_mul[i] == 5) new_w = 8;
+        else if (g->pad_mul[i] == 3) new_w = 12;
+        if (new_w < PAD_W) {
+            int cx = (int)g->pad_x[i] + PAD_W / 2;
+            g->pad_x[i] = (uint8_t)(cx - new_w / 2);
+            g->pad_w[i] = (uint8_t)new_w;
+        }
+    }
 }
 
 /* ----- Init -------------------------------------------------------------- */
@@ -339,7 +353,7 @@ GameAction game_input(GameState* g, const InputEvent* ev) {
     if (ev->type == InputTypeShort && ev->key == InputKeyOk) {
         if (g->status == GameStatusLanded) {
             int next = g->level + 1;
-            if (next > HIGHEST_LEVEL) next = 1;  // wrap; later: "You win!" screen
+            if (next > HIGHEST_LEVEL) return GameActionWin;
             /* Capture campaign state before memset wipes it. */
             FuelMode mode = g->fuel_mode;
             Difficulty diff = g->difficulty;

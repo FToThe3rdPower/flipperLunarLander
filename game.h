@@ -16,6 +16,7 @@ typedef enum {
 typedef enum {
     GameActionNone = 0,
     GameActionExitToMenu,
+    GameActionWin,
 } GameAction;
 
 typedef struct {

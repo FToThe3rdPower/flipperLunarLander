@@ -43,6 +43,7 @@ typedef enum {
     ScreenTutorial,
     ScreenInfo,
     ScreenSettings,
+    ScreenGameComplete,
 } Screen;
 
 typedef enum {

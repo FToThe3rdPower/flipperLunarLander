@@ -11,8 +11,11 @@
 #include <furi.h>
 #include <gui/gui.h>
 #include <input/input.h>
+#include <storage/storage.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define HIGH_SCORE_PATH EXT_PATH("apps_data/lunar_lander/score.bin")
 
 #include "lunar_lander.h"
 #include "menu.h"
@@ -40,6 +43,8 @@ typedef struct {
     VgmTilt* vgm;         // non-NULL while a VGM tilt mode is active
     int  tutorial_level;          // 1 or 2 (valid when screen == ScreenTutorial)
     bool tutorial_popup_showing;  // physics paused; waiting for OK to dismiss
+    int  high_score;
+    bool game_complete_new_record;
 } AppModel;
 
 typedef struct {
@@ -51,6 +56,32 @@ typedef struct {
     uint32_t last_tick_ms;
     AppModel model;
 } App;
+
+/* ----- High score persistence -------------------------------------------- */
+
+static void high_score_load(int* hs) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    File* file = storage_file_alloc(storage);
+    *hs = 0;
+    if(storage_file_open(file, HIGH_SCORE_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
+        storage_file_read(file, hs, sizeof(int));
+        storage_file_close(file);
+    }
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+}
+
+static void high_score_save(int hs) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    storage_simply_mkdir(storage, EXT_PATH("apps_data/lunar_lander"));
+    File* file = storage_file_alloc(storage);
+    if(storage_file_open(file, HIGH_SCORE_PATH, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+        storage_file_write(file, &hs, sizeof(int));
+        storage_file_close(file);
+    }
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+}
 
 /* ----- Callbacks --------------------------------------------------------- */
 
@@ -96,6 +127,13 @@ static void draw_callback(Canvas* canvas, void* ctx) {
     switch (app->model.screen) {
         case ScreenMenu:
             menu_draw(canvas, &app->model.menu);
+            if(app->model.high_score > 0) {
+                char hs_buf[16];
+                canvas_set_font(canvas, FontSecondary);
+                snprintf(hs_buf, sizeof(hs_buf), "Best: %d", app->model.high_score);
+                canvas_draw_str_aligned(
+                    canvas, SCREEN_W / 2, 45, AlignCenter, AlignCenter, hs_buf);
+            }
             break;
         case ScreenGame:
             game_draw(canvas, &app->model.game);
@@ -128,6 +166,28 @@ static void draw_callback(Canvas* canvas, void* ctx) {
                 "1979 Atari game.");
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, SCREEN_H - 1,
                 AlignCenter, AlignBottom, "Back to return");
+            break;
+        }
+        case ScreenGameComplete: {
+            canvas_set_font(canvas, FontPrimary);
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W / 2, 8, AlignCenter, AlignCenter, "YOU WIN!");
+            canvas_draw_line(canvas, 0, 14, SCREEN_W - 1, 14);
+            canvas_set_font(canvas, FontSecondary);
+            char buf[24];
+            snprintf(buf, sizeof(buf), "Score: %d", app->model.game.score);
+            canvas_draw_str_aligned(canvas, SCREEN_W / 2, 28, AlignCenter, AlignCenter, buf);
+            if(app->model.game_complete_new_record) {
+                canvas_draw_str_aligned(
+                    canvas, SCREEN_W / 2, 40, AlignCenter, AlignCenter, "New high score!");
+            } else {
+                snprintf(buf, sizeof(buf), "Best: %d", app->model.high_score);
+                canvas_draw_str_aligned(
+                    canvas, SCREEN_W / 2, 40, AlignCenter, AlignCenter, buf);
+            }
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W / 2, SCREEN_H - 1,
+                AlignCenter, AlignBottom, "OK / Back: menu");
             break;
         }
         case ScreenSettings: {
@@ -230,7 +290,20 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                 game_apply_tap_impulse(&m->game);
             }
             GameAction a = game_input(&m->game, ev);
-            if(a == GameActionExitToMenu) set_screen(m, ScreenMenu);
+            if(a == GameActionExitToMenu) {
+                if(m->game.score > m->high_score) {
+                    m->high_score = m->game.score;
+                    high_score_save(m->high_score);
+                }
+                set_screen(m, ScreenMenu);
+            } else if(a == GameActionWin) {
+                m->game_complete_new_record = (m->game.score > m->high_score);
+                if(m->game_complete_new_record) {
+                    m->high_score = m->game.score;
+                    high_score_save(m->high_score);
+                }
+                set_screen(m, ScreenGameComplete);
+            }
             break;
         }
         case ScreenTutorial: {
@@ -304,6 +377,12 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                 set_screen(m, ScreenMenu);
             }
             break;
+        case ScreenGameComplete:
+            if(ev->type == InputTypeShort &&
+               (ev->key == InputKeyOk || ev->key == InputKeyBack)) {
+                set_screen(m, ScreenMenu);
+            }
+            break;
     }
 }
 
@@ -341,6 +420,7 @@ int32_t lunar_lander_app(void* p) {
     menu_init(&app->model.menu);
     app->model.screen = ScreenMenu;
     app->model.should_exit = false;
+    high_score_load(&app->model.high_score);
 
     app->view_port = view_port_alloc();
     view_port_draw_callback_set(app->view_port, draw_callback, app);
