@@ -14,10 +14,11 @@ typedef enum {
     MenuRowCount,
 } MenuRow;
 
-/* Sub-selection within the title row: the "LUNAR LANDER" about-button on the
- * left, or the gear icon on the right. Left/Right toggles between them. */
+/* Sub-selection within the title row: lander sprite (score), title text
+ * (about), gear (settings). Left/Right cycles left-to-right. */
 typedef enum {
-    MenuTitleSelAbout = 0,
+    MenuTitleSelScore = 0,
+    MenuTitleSelAbout,
     MenuTitleSelSettings,
     MenuTitleSelCount,
 } MenuTitleSel;
@@ -32,6 +33,7 @@ typedef enum {
     MenuActionNone = 0,
     MenuActionStart,
     MenuActionTutorial,
+    MenuActionScore,
     MenuActionInfo,
     MenuActionSettings,
     MenuActionExit,

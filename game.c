@@ -651,17 +651,23 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
     canvas_draw_str_aligned(canvas, 0, 16, AlignLeft, AlignTop, buf);
 
     /* Right column - %+4d keeps width stable as values change sign / magnitude. */
-    int xi = clamp_int((int)g->x, 0, SCREEN_W - 1);
-    int alt = (int)((float)g->terrain[xi] - g->y);
-    if (alt < 0) alt = 0;
 
-    snprintf(buf, sizeof(buf), "Alt:%3d", alt);
-    canvas_draw_str_aligned(canvas, SCREEN_W, 0, AlignRight, AlignTop, buf);
+    /* Row 0: angle — normalize to -180..180 then draw θ:±NNN° */
+    float a = g->angle;
+    while(a >  3.14159265f) a -= 6.28318530f;
+    while(a < -3.14159265f) a += 6.28318530f;
+    snprintf(buf, sizeof(buf), ":%+04d", (int)(a * (180.0f / 3.14159265f)));
+    int text_w = (int)canvas_string_width(canvas, buf);
+    /* theta(5) + gap(1) + text + gap(1) + degree(3) */
+    int ax = SCREEN_W - (6 + text_w + 1 + 3);
+    draw_theta(canvas, ax, 0);
+    canvas_draw_str(canvas, ax + 6, 7, buf);
+    draw_degree_sym(canvas, ax + 6 + text_w + 1, 1);
 
     snprintf(buf, sizeof(buf), "Vx:%+4d", (int)g->vx);
     canvas_draw_str_aligned(canvas, SCREEN_W, 8, AlignRight, AlignTop, buf);
 
-    snprintf(buf, sizeof(buf), "Vy:%+4d", (int)g->vy);
+    snprintf(buf, sizeof(buf), "Vy:%+4d", -(int)g->vy);
     canvas_draw_str_aligned(canvas, SCREEN_W, 16, AlignRight, AlignTop, buf);
 }
 
@@ -712,7 +718,7 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
     canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 8, AlignCenter, AlignCenter, line1);
 
     /* Line 2 — velocities; offending values blink on crash */
-    char buf[14];
+    char buf[16];
     canvas_set_font(canvas, FontSecondary);
     int vel_y = by + (angle_bad ? 19 : 20);
     if(!(vx_bad && blink_hide)) {
@@ -720,7 +726,7 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
         canvas_draw_str_aligned(canvas, SCREEN_W / 2 - 3, vel_y, AlignRight, AlignCenter, buf);
     }
     if(!(vy_bad && blink_hide)) {
-        snprintf(buf, sizeof(buf), "Vy:%+d", (int)g->land_vy);
+        snprintf(buf, sizeof(buf), "Vy:%+d", -(int)g->land_vy);
         canvas_draw_str_aligned(canvas, SCREEN_W / 2 + 3, vel_y, AlignLeft, AlignCenter, buf);
     }
 

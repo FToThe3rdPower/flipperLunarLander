@@ -9,6 +9,7 @@
  */
 
 #include <furi.h>
+#include <furi_hal_power.h>
 #include <gui/gui.h>
 #include <input/input.h>
 #include <storage/storage.h>
@@ -127,13 +128,6 @@ static void draw_callback(Canvas* canvas, void* ctx) {
     switch (app->model.screen) {
         case ScreenMenu:
             menu_draw(canvas, &app->model.menu);
-            if(app->model.high_score > 0) {
-                char hs_buf[16];
-                canvas_set_font(canvas, FontSecondary);
-                snprintf(hs_buf, sizeof(hs_buf), "Best: %d", app->model.high_score);
-                canvas_draw_str_aligned(
-                    canvas, SCREEN_W / 2, 45, AlignCenter, AlignCenter, hs_buf);
-            }
             break;
         case ScreenGame:
             game_draw(canvas, &app->model.game);
@@ -153,7 +147,6 @@ static void draw_callback(Canvas* canvas, void* ctx) {
                 canvas, SCREEN_W / 2, 2, AlignCenter, AlignTop, "ABOUT");
             canvas_draw_line(canvas, 0, 12, SCREEN_W - 1, 12);
             canvas_set_font(canvas, FontSecondary);
-            /* Attribution per README line 3, wrapped to fit FontSecondary. */
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, 16, AlignCenter, AlignTop,
                 "Clauded 'from-scratch,'");
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, 24, AlignCenter, AlignTop,
@@ -164,6 +157,26 @@ static void draw_callback(Canvas* canvas, void* ctx) {
                 "inspired by the");
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, 48, AlignCenter, AlignTop,
                 "1979 Atari game.");
+            canvas_draw_str_aligned(canvas, SCREEN_W / 2, SCREEN_H - 1,
+                AlignCenter, AlignBottom, "Back to return");
+            break;
+        }
+        case ScreenScore: {
+            canvas_set_font(canvas, FontPrimary);
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W / 2, 8, AlignCenter, AlignCenter, "HIGH SCORE");
+            canvas_draw_line(canvas, 0, 14, SCREEN_W - 1, 14);
+            if(app->model.high_score > 0) {
+                char hs_buf[16];
+                snprintf(hs_buf, sizeof(hs_buf), "%d", app->model.high_score);
+                canvas_draw_str_aligned(
+                    canvas, SCREEN_W / 2, 36, AlignCenter, AlignCenter, hs_buf);
+            } else {
+                canvas_set_font(canvas, FontSecondary);
+                canvas_draw_str_aligned(
+                    canvas, SCREEN_W / 2, 36, AlignCenter, AlignCenter, "No score yet");
+            }
+            canvas_set_font(canvas, FontSecondary);
             canvas_draw_str_aligned(canvas, SCREEN_W / 2, SCREEN_H - 1,
                 AlignCenter, AlignBottom, "Back to return");
             break;
@@ -267,7 +280,8 @@ static void handle_menu_action(AppModel* m, MenuAction action) {
     switch (action) {
         case MenuActionStart:    set_screen(m, ScreenGame);     break;
         case MenuActionTutorial: set_screen(m, ScreenTutorial); break;
-        case MenuActionInfo:     set_screen(m, ScreenInfo); break;
+        case MenuActionScore:    set_screen(m, ScreenScore);    break;
+        case MenuActionInfo:     set_screen(m, ScreenInfo);     break;
         case MenuActionSettings: set_screen(m, ScreenSettings); break;
         case MenuActionExit:     m->should_exit = true; break;
         case MenuActionNone:     break;
@@ -372,8 +386,9 @@ static void handle_input_event(App* app, const InputEvent* ev) {
             break;
         }
         case ScreenInfo:
-            if (ev->key == InputKeyBack &&
-                (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
+        case ScreenScore:
+            if(ev->key == InputKeyBack &&
+               (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
                 set_screen(m, ScreenMenu);
             }
             break;
@@ -436,6 +451,11 @@ int32_t lunar_lander_app(void* p) {
     furi_timer_start(app->tick_timer, period);
     app->last_tick_ms = furi_get_tick();
 
+    /* The loader enters insomnia mode (preventing sleep) while any FAP runs.
+     * Exit it here so the device can auto-off normally; re-enter before return
+     * so the loader's paired exit call stays balanced. */
+    furi_hal_power_insomnia_exit();
+
     while (!app->model.should_exit) {
         AppEvent ev;
         if (furi_message_queue_get(app->queue, &ev, FuriWaitForever) != FuriStatusOk) continue;
@@ -456,6 +476,8 @@ int32_t lunar_lander_app(void* p) {
         furi_mutex_release(app->mutex);
         view_port_update(app->view_port);
     }
+
+    furi_hal_power_insomnia_enter();
 
     furi_timer_stop(app->tick_timer);
     furi_timer_free(app->tick_timer);
