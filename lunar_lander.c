@@ -17,6 +17,8 @@
 #include <math.h>
 
 #define HIGH_SCORE_PATH EXT_PATH("apps_data/lunar_lander/score.bin")
+#define SETTINGS_PATH   EXT_PATH("apps_data/lunar_lander/lunarLanderSettings.bin")
+#define SETTINGS_VERSION 1
 
 #include "lunar_lander.h"
 #include "menu.h"
@@ -85,6 +87,59 @@ static void high_score_save(int hs) {
     File* file = storage_file_alloc(storage);
     if(storage_file_open(file, HIGH_SCORE_PATH, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
         storage_file_write(file, &hs, sizeof(int));
+        storage_file_close(file);
+    }
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+}
+
+/* ----- Settings persistence ---------------------------------------------- */
+
+typedef struct {
+    uint8_t version;
+    uint8_t thrust_mode;
+    uint8_t fuel_mode;
+    uint8_t difficulty;
+    bool    sound_on;
+    bool    vibration_on;
+    bool    debug_hud;
+} SavedSettings;
+
+static void settings_load(AppModel* m) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    File* file = storage_file_alloc(storage);
+    if(storage_file_open(file, SETTINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
+        SavedSettings s;
+        if(storage_file_read(file, &s, sizeof(s)) == sizeof(s) &&
+           s.version == SETTINGS_VERSION) {
+            m->menu.thrust_mode  = (ThrustMode)s.thrust_mode;
+            m->menu.fuel_mode    = (FuelMode)s.fuel_mode;
+            m->menu.difficulty   = (Difficulty)s.difficulty;
+            m->menu.sound_on     = s.sound_on;
+            m->menu.vibration_on = s.vibration_on;
+            m->debug_hud         = s.debug_hud;
+        }
+        storage_file_close(file);
+    }
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+}
+
+static void settings_save(const AppModel* m) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    storage_simply_mkdir(storage, EXT_PATH("apps_data/lunar_lander"));
+    File* file = storage_file_alloc(storage);
+    if(storage_file_open(file, SETTINGS_PATH, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+        SavedSettings s = {
+            .version      = SETTINGS_VERSION,
+            .thrust_mode  = (uint8_t)m->menu.thrust_mode,
+            .fuel_mode    = (uint8_t)m->menu.fuel_mode,
+            .difficulty   = (uint8_t)m->menu.difficulty,
+            .sound_on     = m->menu.sound_on,
+            .vibration_on = m->menu.vibration_on,
+            .debug_hud    = m->debug_hud,
+        };
+        storage_file_write(file, &s, sizeof(s));
         storage_file_close(file);
     }
     storage_file_free(file);
@@ -412,6 +467,7 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                 default:
                     break;
             }
+            settings_save(&app->model);
             break;
         }
         case ScreenInfo:
@@ -478,6 +534,7 @@ int32_t lunar_lander_app(void* p) {
         furi_timer_alloc(tick_timer_callback, FuriTimerTypePeriodic, app);
 
     menu_init(&app->model.menu);
+    settings_load(&app->model);
     app->model.screen = ScreenMenu;
     app->model.should_exit = false;
     high_score_load(&app->model.high_score);
