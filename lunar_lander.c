@@ -14,6 +14,7 @@
 #include <storage/storage.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define HIGH_SCORE_PATH EXT_PATH("apps_data/lunar_lander/score.bin")
 
@@ -45,6 +46,13 @@ typedef struct {
     bool tutorial_popup_showing;  // physics paused; waiting for OK to dismiss
     int  high_score;
     bool game_complete_new_record;
+
+    /* Debug overlay — toggled from Settings screen. */
+    bool     debug_hud;
+    uint32_t debug_tick_count;
+    uint32_t debug_free_heap;
+    uint8_t  debug_queue_depth;
+    uint8_t  debug_peak_queue;
 } AppModel;
 
 typedef struct {
@@ -85,38 +93,41 @@ static void high_score_save(int hs) {
 
 /* ----- Callbacks --------------------------------------------------------- */
 
-/* Settings-screen row: label on the left, "On"/"Off" on the right, with the
- * same rbox/rframe focus chrome as the menu's selector rows. */
-static void draw_setting_row(
-    Canvas* canvas, int y, const char* label, bool value, bool focused) {
-    if (focused) {
-        canvas_draw_rbox(canvas, 2, y, SCREEN_W - 4, 12, 2);
-        canvas_set_color(canvas, ColorWhite);
-    } else {
-        canvas_draw_rframe(canvas, 2, y, SCREEN_W - 4, 12, 2);
-    }
-    canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str_aligned(canvas, 7, y + 6, AlignLeft, AlignCenter, label);
-    canvas_draw_str_aligned(
-        canvas, SCREEN_W - 7, y + 6, AlignRight, AlignCenter, value ? "On" : "Off");
-    canvas_set_color(canvas, ColorBlack);
-}
+static void draw_debug_overlay(Canvas* canvas, const AppModel* m) {
+    const GameState* g = &m->game;
 
-
-/* Selector row for multi-value settings (e.g. Difficulty). Shows < > arrows
- * on the sides when focused, label on the left, current value on the right. */
-static void draw_setting_selector(
-    Canvas* canvas, int y, const char* label, const char* value, bool focused) {
-    if(focused) {
-        canvas_draw_rbox(canvas, 2, y, SCREEN_W - 4, 12, 2);
-        canvas_set_color(canvas, ColorWhite);
-    } else {
-        canvas_draw_rframe(canvas, 2, y, SCREEN_W - 4, 12, 2);
-    }
-    canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str_aligned(canvas, 7,           y + 6, AlignLeft,  AlignCenter, label);
-    canvas_draw_str_aligned(canvas, SCREEN_W - 7, y + 6, AlignRight, AlignCenter, value);
+    /* Draw debug stats in the top 24 rows where the HUD normally lives.
+     * No background box — terrain and lander show through beneath. */
     canvas_set_color(canvas, ColorBlack);
+    canvas_set_font(canvas, FontSecondary);
+
+    char buf[24];
+
+    /* Row 0: free heap + tick counter */
+    snprintf(buf, sizeof(buf), "HP:%lu TK:%lu",
+             (unsigned long)m->debug_free_heap,
+             (unsigned long)(m->debug_tick_count % 100000UL));
+    canvas_draw_str(canvas, 0, 7, buf);
+
+    /* Row 1: queue depth (current/peak) + speed magnitude */
+    int speed = (int)sqrtf(g->vx * g->vx + g->vy * g->vy);
+    snprintf(buf, sizeof(buf), "Q:%u/%u SP:%d",
+             m->debug_queue_depth, m->debug_peak_queue, speed);
+    canvas_draw_str(canvas, 0, 15, buf);
+
+    /* Row 2: angle + velocities, or a NaN/runaway warning */
+    bool bad_a = (g->angle != g->angle) || (g->angle > 1e6f) || (g->angle < -1e6f);
+    bool bad_v = (g->vx != g->vx) || (g->vy != g->vy)
+              || (g->vx > 1e6f) || (g->vx < -1e6f)
+              || (g->vy > 1e6f) || (g->vy < -1e6f);
+    if(bad_a || bad_v) {
+        snprintf(buf, sizeof(buf), "!BAD:%s%s",
+                 bad_a ? " ANG" : "", bad_v ? " VEL" : "");
+    } else {
+        int deg = (int)(g->angle * (180.0f / 3.14159265f));
+        snprintf(buf, sizeof(buf), "A:%+d X:%+d Y:%+d", deg, (int)g->vx, (int)g->vy);
+    }
+    canvas_draw_str(canvas, 0, 23, buf);
 }
 
 static void draw_callback(Canvas* canvas, void* ctx) {
@@ -129,9 +140,12 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             menu_draw(canvas, &app->model.menu);
             break;
         case ScreenGame:
+            app->model.game.hud_hidden = app->model.debug_hud;
             game_draw(canvas, &app->model.game);
+            if(app->model.debug_hud) draw_debug_overlay(canvas, &app->model);
             break;
         case ScreenTutorial:
+            app->model.game.hud_hidden = app->model.debug_hud;
             game_draw(canvas, &app->model.game);
             if(app->model.tutorial_popup_showing) {
                 game_draw_tutorial_popup(canvas,
@@ -139,6 +153,7 @@ static void draw_callback(Canvas* canvas, void* ctx) {
                                          app->model.menu.thrust_mode,
                                          &app->model.game);
             }
+            if(app->model.debug_hud) draw_debug_overlay(canvas, &app->model);
             break;
         case ScreenInfo: {
             canvas_set_font(canvas, FontPrimary);
@@ -207,18 +222,19 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             canvas_draw_str_aligned(
                 canvas, SCREEN_W / 2, 2, AlignCenter, AlignTop, "SETTINGS");
             canvas_draw_line(canvas, 0, 12, SCREEN_W - 1, 12);
-            draw_setting_row(canvas, 16, "Sound",
-                             app->model.menu.sound_on,
-                             app->model.settings_focus == 0);
-            draw_setting_row(canvas, 29, "Vibration",
-                             app->model.menu.vibration_on,
-                             app->model.settings_focus == 1);
-            draw_setting_selector(canvas, 42, "Difficulty",
-                                  difficulty_label[app->model.menu.difficulty],
-                                  app->model.settings_focus == 2);
-            canvas_set_font(canvas, FontSecondary);
-            canvas_draw_str_aligned(canvas, SCREEN_W / 2, SCREEN_H - 1,
-                AlignCenter, AlignBottom, "OK/L/R change  Back: return");
+            char buf[24];
+            draw_selector_row(canvas, 14,
+                app->model.menu.sound_on ? "Sound: On" : "Sound: Off",
+                app->model.settings_focus == 0);
+            draw_selector_row(canvas, 26,
+                app->model.menu.vibration_on ? "Vibration: On" : "Vibration: Off",
+                app->model.settings_focus == 1);
+            snprintf(buf, sizeof(buf), "Difficulty: %s",
+                     difficulty_label[app->model.menu.difficulty]);
+            draw_selector_row(canvas, 38, buf, app->model.settings_focus == 2);
+            draw_selector_row(canvas, 50,
+                app->model.debug_hud ? "Debug HUD: On" : "Debug HUD: Off",
+                app->model.settings_focus == 3);
             break;
         }
     }
@@ -271,6 +287,10 @@ static void set_screen(App* app, Screen new_screen) {
             m->vgm = vgm_tilt_alloc();
             m->game.vgm_missing = !vgm_tilt_present(m->vgm);
         }
+        m->debug_tick_count  = 0;
+        m->debug_peak_queue  = 0;
+        m->debug_queue_depth = 0;
+        m->debug_free_heap   = 0;
         app->last_tick_ms = furi_get_tick();
         uint32_t period = furi_kernel_get_tick_frequency() / TICK_HZ;
         if(period < 1) period = 1;
@@ -365,23 +385,26 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                     if (m->settings_focus > 0) m->settings_focus--;
                     break;
                 case InputKeyDown:
-                    if (m->settings_focus < 2) m->settings_focus++;
+                    if (m->settings_focus < 3) m->settings_focus++;
                     break;
                 case InputKeyLeft:
                     if (m->settings_focus == 2)
                         m->menu.difficulty = (m->menu.difficulty + DifficultyCount - 1) % DifficultyCount;
+                    else if (m->settings_focus == 3) m->debug_hud         = !m->debug_hud;
                     else if (m->settings_focus == 0) m->menu.sound_on     = !m->menu.sound_on;
                     else                             m->menu.vibration_on = !m->menu.vibration_on;
                     break;
                 case InputKeyRight:
                     if (m->settings_focus == 2)
                         m->menu.difficulty = (m->menu.difficulty + 1) % DifficultyCount;
+                    else if (m->settings_focus == 3) m->debug_hud         = !m->debug_hud;
                     else if (m->settings_focus == 0) m->menu.sound_on     = !m->menu.sound_on;
                     else                             m->menu.vibration_on = !m->menu.vibration_on;
                     break;
                 case InputKeyOk:
                     if (m->settings_focus == 0)      m->menu.sound_on     = !m->menu.sound_on;
                     else if (m->settings_focus == 1) m->menu.vibration_on = !m->menu.vibration_on;
+                    else if (m->settings_focus == 3) m->debug_hud         = !m->debug_hud;
                     break;
                 case InputKeyBack:
                     set_screen(app, ScreenMenu);
@@ -423,6 +446,22 @@ static void handle_tick(App* app, float dt) {
         game_tick(&m->game, m->menu.thrust_mode, dt);
         game_audio_update(&m->game, m->menu.thrust_mode,
                           m->menu.sound_on, m->menu.vibration_on);
+
+        /* Debug metrics — always updated so the overlay is current even if
+         * logging is off. Serial log fires at 6 Hz to stay readable. */
+        m->debug_tick_count++;
+        uint32_t qd = furi_message_queue_get_count(app->queue);
+        if((uint8_t)qd > m->debug_peak_queue) m->debug_peak_queue = (uint8_t)qd;
+        m->debug_queue_depth = (uint8_t)(qd < 255 ? qd : 255);
+        m->debug_free_heap   = (uint32_t)memmgr_get_free_heap();
+        if(m->debug_hud && (m->debug_tick_count % 10 == 0)) {
+            int deg = (int)(m->game.angle * (180.0f / 3.14159265f));
+            FURI_LOG_I("LunarDbg", "HP:%lu TK:%lu Q:%u A:%d X:%d Y:%d",
+                       (unsigned long)m->debug_free_heap,
+                       (unsigned long)m->debug_tick_count,
+                       (unsigned)m->debug_queue_depth,
+                       deg, (int)m->game.vx, (int)m->game.vy);
+        }
     }
 }
 

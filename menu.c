@@ -120,7 +120,7 @@ static void draw_title(Canvas* canvas, const MenuState* m) {
 
 /* Selector row factored so thrust and fuel share the same chrome.
  * `label` is what shows in the middle; `focused` controls the inverted look. */
-static void draw_selector_row(Canvas* canvas, int y, const char* label, bool focused) {
+void draw_selector_row(Canvas* canvas, int y, const char* label, bool focused) {
     if (focused) {
         canvas_draw_rbox(canvas, 2, y, SCREEN_W - 4, 12, 2);
         canvas_set_color(canvas, ColorWhite);

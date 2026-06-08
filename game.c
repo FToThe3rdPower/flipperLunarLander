@@ -856,7 +856,7 @@ void game_draw(Canvas* canvas, const GameState* g) {
         }
     }
 
-    draw_hud(canvas, g);
+    if(!g->hud_hidden) draw_hud(canvas, g);
 
     /* Dim the whole frame when the status banner is up. */
     bool banner_visible = (g->status != GameStatusFlying) &&

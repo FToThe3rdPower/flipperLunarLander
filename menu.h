@@ -55,3 +55,4 @@ typedef struct {
 void menu_init(MenuState* m);
 MenuAction menu_input(MenuState* m, const InputEvent* ev);
 void menu_draw(Canvas* canvas, const MenuState* m);
+void draw_selector_row(Canvas* canvas, int y, const char* label, bool focused);

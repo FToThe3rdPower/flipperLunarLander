@@ -84,6 +84,8 @@ typedef struct {
     float sfx_remaining;  // seconds left on the current SFX, 0 = none
     uint16_t sfx_freq;    // Hz
     bool sfx_vibrate;     // whether this SFX also pulses the vibro motor
+
+    bool hud_hidden;      // set by the app layer when the debug overlay is active
 } GameState;
 
 /* Initialize game state for the given level.
