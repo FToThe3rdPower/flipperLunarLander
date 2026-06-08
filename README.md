@@ -13,6 +13,7 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [x] Distance-based pad multipliers: 1× (right below spawn), 2×, 3×, 5× (near edges)
 - [x] Scoring: `fuel × pad_multiplier × (HIGHEST_LEVEL − level + 1)`
 - [x] Level number shown at top center of HUD (L1–L10; T1–T2 during tutorial)
+- [x] HUD shows score, time, fuel (left) and angle θ, Vx, Vy (right)
 - [x] Sound — thrust tone (pitch scales with thrust level), tap blip, landing chime, crash rumble
 - [x] Vibration — continuous on thrust, 3-pulse celebration on landing, rumble on crash
 - [x] Crash/landing banner — shows Vx and Vy at touchdown; bad values blink on crash
@@ -21,11 +22,9 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [x] Tutorial intro and transition popups adapt to the selected thrust mode and difficulty
 - [x] Settings screen — Sound, Vibration, Difficulty
 - [x] App icon
-- [ ] Always show the θ after landing
-- [ ] Persisted high score
-- [ ] "Game complete" screen after level 10 (currently wraps to level 1)
-- [ ] Flipper auto-power-off is suppressed while the game is running
-- [ ] High-multiplier pads (3× and 5×) should be narrower than the 1× and 2× pads to reflect the added challenge
+- [x] Persisted high score (saved to SD card, shown on menu)
+- [x] "Game complete" screen after level 10
+- [x] High-multiplier pads are narrower: 3×→12 px, 5×→8 px
 
 ## Build & install
 ### Build from source
@@ -85,10 +84,10 @@ position at the start of each level, including after retries.
 | 9     | 2    |
 | 10    | 1    |
 
-All pads are currently 16 px wide (2× the lander's footprint). Pad multipliers
-are distance-based — 1× directly below the spawn, 2× nearby, 3× mid-range,
-5× near the screen edges. In a future pass the higher-multiplier pads should be
-narrower to match their increased difficulty.
+Pad multipliers are distance-based — 1× directly below spawn, 2× nearby,
+3× mid-range, 5× near screen edges. Pad widths match difficulty: 1× and 2×
+pads are 16 px wide; 3× pads are 12 px; 5× pads are 8 px (just wider than
+the lander's footprint).
 
 ## Project layout
 | File | Purpose |

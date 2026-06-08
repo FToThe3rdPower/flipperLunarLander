@@ -21,7 +21,7 @@
 #define DESPIKE_HEIGHT     7       // min height (px) for a feature to count as a spike
 #define DESPIKE_NEAR_TOL   5       // px tolerance for "neighbor is part of the peak"
 
-#define HIGHEST_LEVEL      10      // bump this when adding levels; scoring depends on it
+#define HIGHEST_LEVEL      30      // bump this when adding levels; scoring depends on it
 /* Distance thresholds (from spawn center) for multiplier tiers 1x/2x/3x/5x */
 #define MUL_1X_THRESH      8              // basically right below spawn
 #define MUL_2X_THRESH      (SCREEN_W / 5) // ~25 px
