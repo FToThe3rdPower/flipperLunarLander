@@ -9,7 +9,6 @@
  */
 
 #include <furi.h>
-#include <furi_hal_power.h>
 #include <gui/gui.h>
 #include <input/input.h>
 #include <storage/storage.h>
@@ -244,13 +243,15 @@ static void tick_timer_callback(void* ctx) {
 /* Single point of truth for screen transitions. Handles audio
  * acquire/release on entering/leaving ScreenGame, plus game state init,
  * plus settings-screen focus reset. */
-static void set_screen(AppModel* m, Screen new_screen) {
+static void set_screen(App* app, Screen new_screen) {
+    AppModel* m = &app->model;
     Screen old = m->screen;
     bool old_live = (old == ScreenGame || old == ScreenTutorial);
     bool new_live = (new_screen == ScreenGame || new_screen == ScreenTutorial);
 
     if(old_live && !new_live) {
         game_audio_stop();
+        furi_timer_stop(app->tick_timer);
         if(m->vgm) { vgm_tilt_free(m->vgm); m->vgm = NULL; }
     }
     m->screen = new_screen;
@@ -270,19 +271,24 @@ static void set_screen(AppModel* m, Screen new_screen) {
             m->vgm = vgm_tilt_alloc();
             m->game.vgm_missing = !vgm_tilt_present(m->vgm);
         }
+        app->last_tick_ms = furi_get_tick();
+        uint32_t period = furi_kernel_get_tick_frequency() / TICK_HZ;
+        if(period < 1) period = 1;
+        furi_timer_start(app->tick_timer, period);
     }
     if(new_screen == ScreenSettings && old != ScreenSettings) {
         m->settings_focus = 0;
     }
 }
 
-static void handle_menu_action(AppModel* m, MenuAction action) {
+static void handle_menu_action(App* app, MenuAction action) {
+    AppModel* m = &app->model;
     switch (action) {
-        case MenuActionStart:    set_screen(m, ScreenGame);     break;
-        case MenuActionTutorial: set_screen(m, ScreenTutorial); break;
-        case MenuActionScore:    set_screen(m, ScreenScore);    break;
-        case MenuActionInfo:     set_screen(m, ScreenInfo);     break;
-        case MenuActionSettings: set_screen(m, ScreenSettings); break;
+        case MenuActionStart:    set_screen(app, ScreenGame);     break;
+        case MenuActionTutorial: set_screen(app, ScreenTutorial); break;
+        case MenuActionScore:    set_screen(app, ScreenScore);    break;
+        case MenuActionInfo:     set_screen(app, ScreenInfo);     break;
+        case MenuActionSettings: set_screen(app, ScreenSettings); break;
         case MenuActionExit:     m->should_exit = true; break;
         case MenuActionNone:     break;
     }
@@ -294,7 +300,7 @@ static void handle_input_event(App* app, const InputEvent* ev) {
     switch (m->screen) {
         case ScreenMenu: {
             MenuAction a = menu_input(&m->menu, ev);
-            handle_menu_action(m, a);
+            handle_menu_action(app, a);
             break;
         }
         case ScreenGame: {
@@ -309,14 +315,14 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                     m->high_score = m->game.score;
                     high_score_save(m->high_score);
                 }
-                set_screen(m, ScreenMenu);
+                set_screen(app, ScreenMenu);
             } else if(a == GameActionWin) {
                 m->game_complete_new_record = (m->game.score > m->high_score);
                 if(m->game_complete_new_record) {
                     m->high_score = m->game.score;
                     high_score_save(m->high_score);
                 }
-                set_screen(m, ScreenGameComplete);
+                set_screen(app, ScreenGameComplete);
             }
             break;
         }
@@ -341,7 +347,7 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                         game_init_tutorial(&m->game, m->tutorial_level, m->game.score, m->menu.difficulty);
                         m->tutorial_popup_showing = true;
                     } else {
-                        set_screen(m, ScreenMenu);
+                        set_screen(app, ScreenMenu);
                     }
                 } else {
                     game_init_tutorial(&m->game, m->tutorial_level, m->game.score, m->menu.difficulty);
@@ -349,7 +355,7 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                 break;
             }
             GameAction a = game_input(&m->game, ev);
-            if(a == GameActionExitToMenu) set_screen(m, ScreenMenu);
+            if(a == GameActionExitToMenu) set_screen(app, ScreenMenu);
             break;
         }
         case ScreenSettings: {
@@ -378,7 +384,7 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                     else if (m->settings_focus == 1) m->menu.vibration_on = !m->menu.vibration_on;
                     break;
                 case InputKeyBack:
-                    set_screen(m, ScreenMenu);
+                    set_screen(app, ScreenMenu);
                     break;
                 default:
                     break;
@@ -389,13 +395,13 @@ static void handle_input_event(App* app, const InputEvent* ev) {
         case ScreenScore:
             if(ev->key == InputKeyBack &&
                (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
-                set_screen(m, ScreenMenu);
+                set_screen(app, ScreenMenu);
             }
             break;
         case ScreenGameComplete:
             if(ev->type == InputTypeShort &&
                (ev->key == InputKeyOk || ev->key == InputKeyBack)) {
-                set_screen(m, ScreenMenu);
+                set_screen(app, ScreenMenu);
             }
             break;
     }
@@ -444,17 +450,8 @@ int32_t lunar_lander_app(void* p) {
     app->gui = furi_record_open(RECORD_GUI);
     gui_add_view_port(app->gui, app->view_port, GuiLayerFullscreen);
 
-    /* Start the 60Hz tick. period is in OS ticks; on Flipper that's 1ms each. */
     uint32_t tick_freq = furi_kernel_get_tick_frequency();
-    uint32_t period = tick_freq / TICK_HZ;
-    if (period < 1) period = 1;
-    furi_timer_start(app->tick_timer, period);
     app->last_tick_ms = furi_get_tick();
-
-    /* The loader enters insomnia mode (preventing sleep) while any FAP runs.
-     * Exit it here so the device can auto-off normally; re-enter before return
-     * so the loader's paired exit call stays balanced. */
-    furi_hal_power_insomnia_exit();
 
     while (!app->model.should_exit) {
         AppEvent ev;
@@ -476,8 +473,6 @@ int32_t lunar_lander_app(void* p) {
         furi_mutex_release(app->mutex);
         view_port_update(app->view_port);
     }
-
-    furi_hal_power_insomnia_enter();
 
     furi_timer_stop(app->tick_timer);
     furi_timer_free(app->tick_timer);
