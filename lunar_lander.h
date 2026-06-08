@@ -56,3 +56,22 @@ typedef enum {
 } Difficulty;
 
 extern const char* const difficulty_label[DifficultyCount];
+
+typedef enum {
+    SoundOff = 0,
+    SoundLow,
+    SoundMed,
+    SoundHigh,
+    SoundCount,
+} SoundLevel;
+
+typedef enum {
+    VibrationOff = 0,
+    VibrationLow,   // landing celebration only
+    VibrationMed,   // landing + crash/tap SFX
+    VibrationHigh,  // landing + SFX + continuous thrust
+    VibrationCount,
+} VibrationLevel;
+
+extern const char* const sound_level_label[SoundCount];
+extern const char* const vibration_level_label[VibrationCount];

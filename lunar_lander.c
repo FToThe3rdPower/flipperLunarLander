@@ -100,8 +100,8 @@ typedef struct {
     uint8_t thrust_mode;
     uint8_t fuel_mode;
     uint8_t difficulty;
-    bool    sound_on;
-    bool    vibration_on;
+    uint8_t sound_level;
+    uint8_t vibration_level;
     bool    debug_hud;
 } SavedSettings;
 
@@ -115,8 +115,8 @@ static void settings_load(AppModel* m) {
             m->menu.thrust_mode  = (ThrustMode)s.thrust_mode;
             m->menu.fuel_mode    = (FuelMode)s.fuel_mode;
             m->menu.difficulty   = (Difficulty)s.difficulty;
-            m->menu.sound_on     = s.sound_on;
-            m->menu.vibration_on = s.vibration_on;
+            m->menu.sound_level     = (SoundLevel)s.sound_level;
+            m->menu.vibration_level = (VibrationLevel)s.vibration_level;
             m->debug_hud         = s.debug_hud;
         }
         storage_file_close(file);
@@ -135,8 +135,8 @@ static void settings_save(const AppModel* m) {
             .thrust_mode  = (uint8_t)m->menu.thrust_mode,
             .fuel_mode    = (uint8_t)m->menu.fuel_mode,
             .difficulty   = (uint8_t)m->menu.difficulty,
-            .sound_on     = m->menu.sound_on,
-            .vibration_on = m->menu.vibration_on,
+            .sound_level     = (uint8_t)m->menu.sound_level,
+            .vibration_level = (uint8_t)m->menu.vibration_level,
             .debug_hud    = m->debug_hud,
         };
         storage_file_write(file, &s, sizeof(s));
@@ -278,12 +278,12 @@ static void draw_callback(Canvas* canvas, void* ctx) {
                 canvas, SCREEN_W / 2, 2, AlignCenter, AlignTop, "SETTINGS");
             canvas_draw_line(canvas, 0, 12, SCREEN_W - 1, 12);
             char buf[24];
-            draw_selector_row(canvas, 14,
-                app->model.menu.sound_on ? "Sound: On" : "Sound: Off",
-                app->model.settings_focus == 0);
-            draw_selector_row(canvas, 26,
-                app->model.menu.vibration_on ? "Vibration: On" : "Vibration: Off",
-                app->model.settings_focus == 1);
+            snprintf(buf, sizeof(buf), "Sound: %s",
+                     sound_level_label[app->model.menu.sound_level]);
+            draw_selector_row(canvas, 14, buf, app->model.settings_focus == 0);
+            snprintf(buf, sizeof(buf), "Vibration: %s",
+                     vibration_level_label[app->model.menu.vibration_level]);
+            draw_selector_row(canvas, 26, buf, app->model.settings_focus == 1);
             snprintf(buf, sizeof(buf), "Difficulty: %s",
                      difficulty_label[app->model.menu.difficulty]);
             draw_selector_row(canvas, 38, buf, app->model.settings_focus == 2);
@@ -448,23 +448,32 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                     if (m->settings_focus < 3) m->settings_focus++;
                     break;
                 case InputKeyLeft:
-                    if (m->settings_focus == 2)
-                        m->menu.difficulty = (m->menu.difficulty + DifficultyCount - 1) % DifficultyCount;
-                    else if (m->settings_focus == 3) m->debug_hud         = !m->debug_hud;
-                    else if (m->settings_focus == 0) m->menu.sound_on     = !m->menu.sound_on;
-                    else                             m->menu.vibration_on = !m->menu.vibration_on;
+                    if (m->settings_focus == 0)
+                        m->menu.sound_level = (SoundLevel)((m->menu.sound_level + SoundCount - 1) % SoundCount);
+                    else if (m->settings_focus == 1)
+                        m->menu.vibration_level = (VibrationLevel)((m->menu.vibration_level + VibrationCount - 1) % VibrationCount);
+                    else if (m->settings_focus == 2)
+                        m->menu.difficulty = (Difficulty)((m->menu.difficulty + DifficultyCount - 1) % DifficultyCount);
+                    else if (m->settings_focus == 3)
+                        m->debug_hud = !m->debug_hud;
                     break;
                 case InputKeyRight:
-                    if (m->settings_focus == 2)
-                        m->menu.difficulty = (m->menu.difficulty + 1) % DifficultyCount;
-                    else if (m->settings_focus == 3) m->debug_hud         = !m->debug_hud;
-                    else if (m->settings_focus == 0) m->menu.sound_on     = !m->menu.sound_on;
-                    else                             m->menu.vibration_on = !m->menu.vibration_on;
+                    if (m->settings_focus == 0)
+                        m->menu.sound_level = (SoundLevel)((m->menu.sound_level + 1) % SoundCount);
+                    else if (m->settings_focus == 1)
+                        m->menu.vibration_level = (VibrationLevel)((m->menu.vibration_level + 1) % VibrationCount);
+                    else if (m->settings_focus == 2)
+                        m->menu.difficulty = (Difficulty)((m->menu.difficulty + 1) % DifficultyCount);
+                    else if (m->settings_focus == 3)
+                        m->debug_hud = !m->debug_hud;
                     break;
                 case InputKeyOk:
-                    if (m->settings_focus == 0)      m->menu.sound_on     = !m->menu.sound_on;
-                    else if (m->settings_focus == 1) m->menu.vibration_on = !m->menu.vibration_on;
-                    else if (m->settings_focus == 3) m->debug_hud         = !m->debug_hud;
+                    if (m->settings_focus == 0)
+                        m->menu.sound_level = (SoundLevel)((m->menu.sound_level + 1) % SoundCount);
+                    else if (m->settings_focus == 1)
+                        m->menu.vibration_level = (VibrationLevel)((m->menu.vibration_level + 1) % VibrationCount);
+                    else if (m->settings_focus == 3)
+                        m->debug_hud = !m->debug_hud;
                     break;
                 case InputKeyBack:
                     set_screen(app, ScreenMenu);
@@ -506,7 +515,7 @@ static void handle_tick(App* app, float dt) {
         }
         game_tick(&m->game, m->menu.thrust_mode, dt);
         game_audio_update(&m->game, m->menu.thrust_mode,
-                          m->menu.sound_on, m->menu.vibration_on);
+                          m->menu.sound_level, m->menu.vibration_level);
 
         /* Debug metrics — always updated so the overlay is current even if
          * logging is off. Serial log fires at 6 Hz to stay readable. */

@@ -888,6 +888,7 @@ void game_draw(Canvas* canvas, const GameState* g) {
 static bool      audio_acquired = false;
 static uint16_t  audio_current_freq = 0;   // 0 = silent
 static bool      audio_vibrating = false;
+static float     audio_volume = AUDIO_VOLUME;
 
 void game_audio_start(void) {
     if (audio_acquired) return;
@@ -917,7 +918,7 @@ static void audio_set_freq(uint16_t freq) {
     if (freq == 0) {
         furi_hal_speaker_stop();
     } else {
-        furi_hal_speaker_start((float)freq, AUDIO_VOLUME);
+        furi_hal_speaker_start((float)freq, audio_volume);
     }
     audio_current_freq = freq;
 }
@@ -928,41 +929,57 @@ static void audio_set_vibro(bool on) {
     audio_vibrating = on;
 }
 
-void game_audio_update(const GameState* g, ThrustMode mode, bool sound_on, bool vibration_on) {
+void game_audio_update(const GameState* g, ThrustMode mode, SoundLevel sound_level, VibrationLevel vibration_level) {
+    static const float sound_volumes[SoundCount] = {0.0f, 0.2f, 0.45f, 0.7f};
+    static uint32_t vibro_pwm_tick = 0;
+    audio_volume = sound_volumes[sound_level];
+
     bool continuous_thrust = (mode == ThrustModeBinary    ||
                               mode == ThrustModeRamp       ||
                               mode == ThrustModeVidyaBinary||
                               mode == ThrustModeVidyaRamp  ||
                               mode == ThrustModeVidyaFull);
     uint16_t target_freq = 0;
-    bool target_vibro = false;
+    bool vibro_any = false;
 
-    if (g->sfx_remaining > 0.0f) {
+    if(g->sfx_remaining > 0.0f) {
         target_freq = g->sfx_freq;
-        target_vibro = g->sfx_vibrate;
-    } else if (continuous_thrust &&
-               g->current_thrust > 0.05f &&
-               g->fuel > 0.0f &&
-               g->status == GameStatusFlying) {
+        if(g->sfx_vibrate) vibro_any = true;
+    } else if(continuous_thrust &&
+              g->current_thrust > 0.05f &&
+              g->fuel > 0.0f &&
+              g->status == GameStatusFlying) {
         target_freq = (uint16_t)(THRUST_FREQ_MIN +
                                  g->current_thrust * (THRUST_FREQ_MAX - THRUST_FREQ_MIN));
-        target_vibro = true;
+        vibro_any = true;
     }
 
-    /* Landing celebration: 3 short vibration pulses timed off status_time. */
+    /* Landing celebration: 3 short vibration pulses. */
     if(g->status == GameStatusLanded) {
         float period = LAND_PULSE_ON + LAND_PULSE_OFF;
         float total  = LAND_PULSE_COUNT * period;
         if(g->status_time < total) {
             float phase = g->status_time - ((int)(g->status_time / period)) * period;
-            if(phase < LAND_PULSE_ON) target_vibro = true;
+            if(phase < LAND_PULSE_ON) vibro_any = true;
         }
     }
 
-    /* Settings gates — applied after target computation so the rest of the
-     * logic stays unchanged. Hits both continuous thrust and one-shot SFX. */
-    if(!sound_on)     target_freq  = 0;
-    if(!vibration_on) target_vibro = false;
+    if(sound_level == SoundOff) target_freq = 0;
+
+    /* Software PWM for intensity. Counter resets on silence so every new
+     * burst (crash, tap, thrust) always starts on the "on" tick. */
+    bool target_vibro = false;
+    if(vibro_any && vibration_level != VibrationOff) {
+        vibro_pwm_tick++;
+        switch(vibration_level) {
+            case VibrationLow:  target_vibro = (vibro_pwm_tick % 4) == 1; break; // 25%
+            case VibrationMed:  target_vibro = (vibro_pwm_tick % 2) == 1; break; // 50%
+            case VibrationHigh: target_vibro = true;                       break; // 100%
+            default: break;
+        }
+    } else {
+        vibro_pwm_tick = 0;
+    }
 
     audio_set_freq(target_freq);
     audio_set_vibro(target_vibro);

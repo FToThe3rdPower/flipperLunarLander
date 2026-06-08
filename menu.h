@@ -48,8 +48,8 @@ typedef struct {
     ThrustMode   thrust_mode;
     FuelMode     fuel_mode;
     Difficulty   difficulty;
-    bool         sound_on;
-    bool         vibration_on;
+    SoundLevel     sound_level;
+    VibrationLevel vibration_level;
 } MenuState;
 
 void menu_init(MenuState* m);

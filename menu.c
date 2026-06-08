@@ -34,6 +34,14 @@ const char* const difficulty_label[DifficultyCount] = {
     "Realistic",
 };
 
+const char* const sound_level_label[SoundCount] = {
+    "Off", "Low", "Med", "High",
+};
+
+const char* const vibration_level_label[VibrationCount] = {
+    "Off", "Low", "Med", "High",
+};
+
 const char* const fuel_mode_label[FuelModeCount] = {
     "Full fuel each lvl",
     "No refuel, Easy: 500",
@@ -192,8 +200,8 @@ void menu_init(MenuState* m) {
     m->btn          = MenuBtnStart;
     m->row          = MenuRowThrust;
     m->title_sel    = MenuTitleSelAbout;
-    m->sound_on     = true;
-    m->vibration_on = true;
+    m->sound_level     = SoundMed;
+    m->vibration_level = VibrationHigh;
 }
 
 MenuAction menu_input(MenuState* m, const InputEvent* ev) {
