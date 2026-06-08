@@ -210,8 +210,8 @@ static void pads_place(GameState* g) {
      * active zone is intentional — it makes the narrowing visible. */
     for (int i = 0; i < g->num_pads; i++) {
         int new_w = PAD_W;
-        if      (g->pad_mul[i] == 5) new_w = 8;
-        else if (g->pad_mul[i] == 3) new_w = 12;
+        if      (g->pad_mul[i] == 5) new_w = 10;
+        else if (g->pad_mul[i] == 3) new_w = 13;
         if (new_w < PAD_W) {
             int cx = (int)g->pad_x[i] + PAD_W / 2;
             g->pad_x[i] = (uint8_t)(cx - new_w / 2);
@@ -575,43 +575,38 @@ static void draw_degree_sym(Canvas* canvas, int x, int y) {
 }
 
 static void draw_terrain(Canvas* canvas, const GameState* g) {
-    for (int x = 0; x < SCREEN_W - 1; x++) {
-        canvas_draw_line(canvas, x, g->terrain[x], x + 1, g->terrain[x + 1]);
+    /* Solid fill: each column is a vertical bar from the terrain surface
+     * down to the screen bottom.  The top pixel of each bar is exactly
+     * terrain[x], so what despike wrote is exactly what's drawn — no
+     * Bresenham smear from neighbours. */
+    for (int x = 0; x < SCREEN_W; x++) {
+        canvas_draw_line(canvas, x, (int)g->terrain[x], x, SCREEN_H - 1);
     }
-    /* Pads:
-     *   - 2 px thick (add an extra row of pixels just below the surface line)
-     *   - multiplier label is drawn UNDER the pad when there's room; falls
-     *     back to ABOVE the pad for pads near the bottom of the screen.
-     * Reads g->pad_mul[i] so when we eventually vary multipliers per pad
-     * (instead of all DEFAULT_PAD_MUL), nothing else has to change here. */
+    /* Pads: multiplier label drawn UNDER the pad (inside the solid fill)
+     * using ColorWhite so it shows as bright text on dark ground.
+     * Falls back to ABOVE the pad (in bright sky, ColorBlack) when there
+     * is no room below. */
     canvas_set_font(canvas, FontSecondary);
-    const int label_h = 7;          // approx FontSecondary height
+    const int label_h = 7;
     for (int i = 0; i < g->num_pads; i++) {
         int px = g->pad_x[i];
-        int py = g->terrain[px];
-
+        int py = (int)g->terrain[px];
         int pw = (int)g->pad_w[i];
-
-        /* Second pixel row immediately below the pad surface */
-        if (py + 1 < SCREEN_H) {
-            canvas_draw_line(canvas, px, py + 1, px + pw - 1, py + 1);
-        }
 
         char buf[8];
         snprintf(buf, sizeof(buf), "%dx", (int)g->pad_mul[i]);
 
-        /* Prefer below; fall back to above if it would clip. */
         int label_top_below = py + 3;
         int label_top_above = py - 2 - label_h;
         if (label_top_below + label_h <= SCREEN_H) {
+            canvas_set_color(canvas, ColorWhite);
             canvas_draw_str_aligned(
                 canvas, px + pw / 2, label_top_below, AlignCenter, AlignTop, buf);
+            canvas_set_color(canvas, ColorBlack);
         } else if (label_top_above >= 0) {
             canvas_draw_str_aligned(
                 canvas, px + pw / 2, py - 2, AlignCenter, AlignBottom, buf);
         }
-        /* No label at all when both positions would clip; the thick pad
-         * itself still marks the landing zone. */
     }
 }
 
