@@ -374,7 +374,12 @@ static void handle_input_event(App* app, const InputEvent* ev) {
 
     switch (m->screen) {
         case ScreenMenu: {
+            ThrustMode prev_thrust = m->menu.thrust_mode;
+            FuelMode   prev_fuel   = m->menu.fuel_mode;
             MenuAction a = menu_input(&m->menu, ev);
+            if(m->menu.thrust_mode != prev_thrust || m->menu.fuel_mode != prev_fuel) {
+                settings_save(&app->model);
+            }
             handle_menu_action(app, a);
             break;
         }
