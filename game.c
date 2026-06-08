@@ -16,6 +16,7 @@
  * header. */
 
 #define PAD_W              16      // 2x lander total width
+#define CEILING_Y          (-10.0f) // play area extends 10px above screen so lander fully disappears
 #define TERRAIN_TOP_Y      26      // highest peak (smallest y) after normalization
 #define TERRAIN_BOT_Y      (SCREEN_H - 1)  // deepest valley = bottom row of screen
 #define DESPIKE_HEIGHT     7       // min height (px) for a feature to count as a spike
@@ -511,8 +512,8 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
 
     /* Horizontal wrap */
     if (WRAP_X) {
-        if (g->x < 0.0f) g->x += SCREEN_W;
-        if (g->x >= SCREEN_W) g->x -= SCREEN_W;
+        if (g->x + LANDER_FOOT_DX < 0.0f)             g->x += (float)SCREEN_W;
+        if (g->x - LANDER_FOOT_DX >= (float)SCREEN_W) g->x -= (float)SCREEN_W;
     } else {
         if (g->x < 0.0f) { g->x = 0.0f; g->vx = 0.0f; }
         if (g->x >= SCREEN_W) { g->x = SCREEN_W - 1; g->vx = 0.0f; }
@@ -526,7 +527,7 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
     }
 
     /* Collision with terrain or ceiling */
-    if (g->y < 0.0f) { g->y = 0.0f; if (g->vy < 0.0f) g->vy = 0.0f; }
+    if (g->y < CEILING_Y) { g->y = CEILING_Y; if (g->vy < 0.0f) g->vy = 0.0f; }
 
     check_collision(g);
 }
@@ -623,6 +624,13 @@ static void draw_lander(Canvas* canvas, const GameState* g) {
         thrust_for_draw = g->current_thrust;
     }
     lander_draw_rotated(canvas, g->x, g->y, g->angle, thrust_for_draw);
+
+    if(g->y < 0.0f) {
+        int ix = clamp_int((int)g->x, 2, SCREEN_W - 3);
+        canvas_draw_line(canvas, ix - 2, 0, ix + 2, 0);
+        canvas_draw_line(canvas, ix - 1, 1, ix + 1, 1);
+        canvas_draw_dot (canvas, ix,     2);
+    }
 }
 
 static void draw_hud(Canvas* canvas, const GameState* g) {
