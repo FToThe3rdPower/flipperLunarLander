@@ -542,7 +542,7 @@ int32_t lunar_lander_app(void* p) {
 
     App* app = malloc(sizeof(App));
     memset(app, 0, sizeof(App));
-    app->queue = furi_message_queue_alloc(16, sizeof(AppEvent));
+    app->queue = furi_message_queue_alloc(32, sizeof(AppEvent));
     app->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
     app->tick_timer =
         furi_timer_alloc(tick_timer_callback, FuriTimerTypePeriodic, app);

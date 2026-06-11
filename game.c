@@ -19,8 +19,7 @@
 #define CEILING_Y          (-10.0f) // play area extends 10px above screen so lander fully disappears
 #define TERRAIN_TOP_Y      26      // highest peak (smallest y) after normalization
 #define TERRAIN_BOT_Y      (SCREEN_H - 1)  // deepest valley = bottom row of screen
-#define DESPIKE_HEIGHT     7       // min height (px) for a feature to count as a spike
-#define DESPIKE_NEAR_TOL   5       // px tolerance for "neighbor is part of the peak"
+#define DESPIKE_HEIGHT     5       // a column must be this many px above BOTH x±2 neighbours to be a spike
 
 #define HIGHEST_LEVEL      30      // bump this when adding levels; scoring depends on it
 /* Distance thresholds (from spawn center) for multiplier tiers 1x/2x/3x/5x */
@@ -123,33 +122,25 @@ static void terrain_generate(GameState* g) {
     }
 }
 
-/* Flatten peaks that are taller than DESPIKE_HEIGHT pixels and thinner than 3
- * pixels wide. Operates on already-normalized terrain so thresholds are in
- * screen-pixel units. A column is a "spike" when terrain[x] is at least
- * DESPIKE_HEIGHT smaller than both terrain[x-2] and terrain[x+2], AND at most
- * one immediate neighbor is within DESPIKE_NEAR_TOL of terrain[x] — i.e. the
- * feature width is 1 or 2. Doesn't change min(terrain) so the bottom-of-screen
- * guarantee from normalization is preserved (we only flatten peaks, never
- * valleys). */
+/* Remove narrow peaks: any column more than DESPIKE_HEIGHT pixels above BOTH
+ * x±2 neighbours is snapped to their average. Using x±2 as the reference
+ * catches 1- and 2-column-wide spikes (a 2-wide spike has two adjacent columns
+ * at the same elevation, so neither would look like a spike to an x±1 check).
+ * Two passes so back-to-back spikes are also handled. */
 static void terrain_despike(GameState* g) {
     uint8_t out[SCREEN_W];
-    memcpy(out, g->terrain, SCREEN_W);
-
-    for (int x = 2; x < SCREEN_W - 2; x++) {
-        int t = (int)g->terrain[x];
-        int dl = (int)g->terrain[x - 2] - t;
-        int dr = (int)g->terrain[x + 2] - t;
-        if (dl > DESPIKE_HEIGHT && dr > DESPIKE_HEIGHT) {
-            int near = 0;
-            if (abs((int)g->terrain[x - 1] - t) <= DESPIKE_NEAR_TOL) near++;
-            if (abs((int)g->terrain[x + 1] - t) <= DESPIKE_NEAR_TOL) near++;
-            if (near <= 1) {
+    for (int pass = 0; pass < 2; pass++) {
+        memcpy(out, g->terrain, SCREEN_W);
+        for (int x = 2; x < SCREEN_W - 2; x++) {
+            int t  = (int)g->terrain[x];
+            int dl = (int)g->terrain[x - 2] - t;
+            int dr = (int)g->terrain[x + 2] - t;
+            if (dl > DESPIKE_HEIGHT && dr > DESPIKE_HEIGHT) {
                 out[x] = (uint8_t)(((int)g->terrain[x - 2] + (int)g->terrain[x + 2]) / 2);
             }
         }
+        memcpy(g->terrain, out, SCREEN_W);
     }
-
-    memcpy(g->terrain, out, SCREEN_W);
 }
 
 int game_pads_for_level(int level) {
@@ -243,6 +234,7 @@ void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int start
     terrain_generate(g);
     terrain_despike(g);
     pads_place(g);
+    terrain_despike(g); // second pass: catches edge spikes introduced at pad boundaries
 
     g->x = (float)SCREEN_W / 2.0f;
     g->y = 6.0f;
@@ -336,7 +328,9 @@ GameAction game_input(GameState* g, const InputEvent* ev) {
                 break;
             default: break;
         }
-    } else if (ev->type == InputTypeRelease) {
+    } else if (ev->type == InputTypeRelease ||
+               ev->type == InputTypeShort   ||
+               ev->type == InputTypeLong) {
         switch (ev->key) {
             case InputKeyLeft:  g->left_held = false; break;
             case InputKeyRight: g->right_held = false; break;
