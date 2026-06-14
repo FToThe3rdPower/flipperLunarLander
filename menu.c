@@ -89,7 +89,7 @@ static void draw_wrench_icon(Canvas* canvas, int cx, int cy) {
 }
 
 /* Title bar layout — three equal 24/80/24 zones across 128px:
- *   [ sprite  0..23 ] [ "LUNAR LANDER"  22..105 ] [ wrench  104..127 ]
+ *   [ sprite  0..21 ] [ "LUNAR LANDER"  22..105 ] [ wrench  106..127 ]
  *   → score            → about                      → settings
  *   Icon centers: x=12, x=64, x=116 (52px apart each).
  *   Separator line at y=10; content lives in y=0..9. */
@@ -100,7 +100,7 @@ static void draw_title(Canvas* canvas, const MenuState* m) {
 
     /* Sprite button — opens high score screen */
     if(score_focused) {
-        canvas_draw_rbox(canvas, 0, 0, 24, 10, 2);
+        canvas_draw_rbox(canvas, 0, 0, 22, 10, 2);
         canvas_set_color(canvas, ColorWhite);
     }
     lander_draw_static(canvas, 12, 5);
@@ -117,7 +117,7 @@ static void draw_title(Canvas* canvas, const MenuState* m) {
 
     /* Settings button */
     if(settings_focused) {
-        canvas_draw_rbox(canvas, 104, 0, 24, 10, 2);
+        canvas_draw_rbox(canvas, 106, 0, 22, 10, 2);
         canvas_set_color(canvas, ColorWhite);
     }
     draw_wrench_icon(canvas, 116, 5);
