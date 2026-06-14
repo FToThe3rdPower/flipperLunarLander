@@ -88,11 +88,11 @@ static void draw_wrench_icon(Canvas* canvas, int cx, int cy) {
     canvas_draw_line(canvas, cx+3, cy + 3,  cx + 4, cy + 3);
 }
 
-/* Title bar layout:
- *   [ sprite ] [ "LUNAR LANDER" ] [ gear ]
- *    x=0..11     x=13..109          x=112..127
- *   → score       → about             → settings
- *   separator line at y=10, content lives in y=0..9 */
+/* Title bar layout — three equal 24/80/24 zones across 128px:
+ *   [ sprite  0..23 ] [ "LUNAR LANDER"  22..105 ] [ wrench  104..127 ]
+ *   → score            → about                      → settings
+ *   Icon centers: x=12, x=64, x=116 (52px apart each).
+ *   Separator line at y=10; content lives in y=0..9. */
 static void draw_title(Canvas* canvas, const MenuState* m) {
     bool score_focused    = (m->row == MenuRowTitle && m->title_sel == MenuTitleSelScore);
     bool about_focused    = (m->row == MenuRowTitle && m->title_sel == MenuTitleSelAbout);
@@ -100,27 +100,27 @@ static void draw_title(Canvas* canvas, const MenuState* m) {
 
     /* Sprite button — opens high score screen */
     if(score_focused) {
-        canvas_draw_rbox(canvas, 0, 0, 12, 10, 2);
+        canvas_draw_rbox(canvas, 0, 0, 24, 10, 2);
         canvas_set_color(canvas, ColorWhite);
     }
-    lander_draw_static(canvas, 6, 5);
+    lander_draw_static(canvas, 12, 5);
     if(score_focused) canvas_set_color(canvas, ColorBlack);
 
     /* About button — title text */
     if(about_focused) {
-        canvas_draw_rbox(canvas, 13, 0, 97, 10, 2);
+        canvas_draw_rbox(canvas, 22, 0, 84, 10, 2);
         canvas_set_color(canvas, ColorWhite);
     }
     canvas_set_font(canvas, FontPrimary);
-    canvas_draw_str_aligned(canvas, 61, 5, AlignCenter, AlignCenter, "LUNAR LANDER");
+    canvas_draw_str_aligned(canvas, 64, 5, AlignCenter, AlignCenter, "LUNAR LANDER");
     if(about_focused) canvas_set_color(canvas, ColorBlack);
 
     /* Settings button */
     if(settings_focused) {
-        canvas_draw_rbox(canvas, 112, 0, 16, 10, 2);
+        canvas_draw_rbox(canvas, 104, 0, 24, 10, 2);
         canvas_set_color(canvas, ColorWhite);
     }
-    draw_wrench_icon(canvas, 119, 5);
+    draw_wrench_icon(canvas, 116, 5);
     if(settings_focused) canvas_set_color(canvas, ColorBlack);
 
     canvas_draw_line(canvas, 0, 10, SCREEN_W - 1, 10);
