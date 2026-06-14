@@ -328,9 +328,7 @@ GameAction game_input(GameState* g, const InputEvent* ev) {
                 break;
             default: break;
         }
-    } else if (ev->type == InputTypeRelease ||
-               ev->type == InputTypeShort   ||
-               ev->type == InputTypeLong) {
+    } else if (ev->type == InputTypeRelease) {
         switch (ev->key) {
             case InputKeyLeft:  g->left_held = false; break;
             case InputKeyRight: g->right_held = false; break;
@@ -888,12 +886,9 @@ static bool      audio_vibrating = false;
 static float     audio_volume = AUDIO_VOLUME;
 
 void game_audio_start(void) {
-    /* Speaker is acquired on-demand in game_audio_update so the device can
-     * sleep during silence (coasting, crashed idle, post-SFX, etc.). */
-    if(audio_acquired) {
-        furi_hal_speaker_stop();
-        furi_hal_speaker_release();
-        audio_acquired = false;
+    if (audio_acquired) return;
+    if (furi_hal_speaker_acquire(100)) {  // 100ms timeout; if taken, run silent
+        audio_acquired = true;
     }
     audio_current_freq = 0;
     audio_vibrating = false;
@@ -979,18 +974,6 @@ void game_audio_update(const GameState* g, ThrustMode mode, SoundLevel sound_lev
         }
     } else {
         vibro_pwm_tick = 0;
-    }
-
-    /* Acquire speaker on demand, release when silent.
-     * furi_hal_speaker_acquire calls furi_hal_power_insomnia_enter, so
-     * releasing when quiet lets the Flipper auto-power-off normally. */
-    if(target_freq > 0 && !audio_acquired) {
-        if(furi_hal_speaker_acquire(100)) audio_acquired = true;
-    } else if(target_freq == 0 && audio_acquired) {
-        furi_hal_speaker_stop();
-        furi_hal_speaker_release();
-        audio_acquired = false;
-        audio_current_freq = 0;
     }
 
     audio_set_freq(target_freq);
