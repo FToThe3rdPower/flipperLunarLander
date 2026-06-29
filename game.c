@@ -7,7 +7,7 @@
 #include <furi_hal_speaker.h>
 #include <furi_hal_vibro.h>
 
-/* ----- Tunables (all in pixels & seconds) -------------------------------- */
+/* ----- Tunables (all in pixels (1px = 1m, based on the actual lunar lander) & seconds) -------------------------------- */
 
 /* NOTE: lander geometry (LANDER_HALF_W, LANDER_BODY_TOP, LANDER_BODY_BOT,
  * LANDER_FOOT_DX, LANDER_FOOT_DY) lives in
