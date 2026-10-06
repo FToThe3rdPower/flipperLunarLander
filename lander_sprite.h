@@ -18,5 +18,7 @@ void lander_draw_static(Canvas* canvas, int cx, int cy);
 
 /* Draw the lander rotated by `angle` (radians, 0 = upright, +ve = clockwise)
  * with the body center at float (cx, cy). If `thrust` > 0.05, a flame is
- * drawn from the platform, scaled by thrust intensity in [0, 1]. */
-void lander_draw_rotated(Canvas* canvas, float cx, float cy, float angle, float thrust);
+ * drawn from the platform, scaled by thrust intensity in [0, 1]. `y_scale`
+ * squishes the sprite vertically for TV mode (1.0 = normal). */
+void lander_draw_rotated(
+    Canvas* canvas, float cx, float cy, float angle, float thrust, float y_scale);

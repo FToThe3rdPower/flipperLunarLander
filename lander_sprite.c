@@ -75,7 +75,8 @@ static void draw_line_clipped(Canvas* canvas, int x1, int y1, int x2, int y2) {
     }
 }
 
-void lander_draw_rotated(Canvas* canvas, float cx, float cy, float angle, float thrust) {
+void lander_draw_rotated(
+    Canvas* canvas, float cx, float cy, float angle, float thrust, float y_scale) {
     float s = sinf(angle);
     float c = cosf(angle);
 
@@ -83,7 +84,7 @@ void lander_draw_rotated(Canvas* canvas, float cx, float cy, float angle, float 
  * the sprite by a pixel as it crosses the left/top edge. Same result for
  * every on-screen (non-negative) coordinate. */
 #define RX(lx, ly) ((int)floorf(cx + (lx) * c - (ly) * s))
-#define RY(lx, ly) ((int)floorf(cy + (lx) * s + (ly) * c))
+#define RY(lx, ly) ((int)floorf(cy + ((lx) * s + (ly) * c) * y_scale))
 
     /* Body outline — four segments forming the rounded rectangle */
     draw_line_clipped(canvas, RX(-1, -3), RY(-1, -3), RX(+1, -3), RY(+1, -3));   // top

@@ -12,13 +12,14 @@
 #include <gui/gui.h>
 #include <input/input.h>
 #include <storage/storage.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
 #define HIGH_SCORE_PATH EXT_PATH("apps_data/lunar_lander/score.bin")
 #define SETTINGS_PATH   EXT_PATH("apps_data/lunar_lander/lunarLanderSettings.bin")
-#define SETTINGS_VERSION 1
+#define SETTINGS_VERSION 2
 
 #include "lunar_lander.h"
 #include "menu.h"
@@ -52,7 +53,8 @@ typedef struct {
     bool should_exit;
     MenuState menu;
     GameState game;
-    int settings_focus;   // 0 sound, 1 vibration, 2 difficulty, 3 debug HUD; reset on entering ScreenSettings
+    int settings_focus;   // a SettingsRow; reset when Settings is opened from the menu
+    int custom_focus;     // custom difficulty screen row: 0 Vx, 1 Vy, 2 angle
     VgmTilt* vgm;         // non-NULL while a VGM tilt mode is active
     int  tutorial_level;          // 1 or 2 (valid when screen == ScreenTutorial)
     bool tutorial_popup_showing;  // physics paused; waiting for OK to dismiss
@@ -123,26 +125,70 @@ typedef struct {
     uint8_t sound_level;
     uint8_t vibration_level;
     uint8_t debug_hud;    // 0/1; uint8_t so a damaged byte can't become an invalid bool
+    /* Added in version 2 */
+    uint8_t custom_vx;
+    uint8_t custom_vy;
+    uint8_t custom_angle;
+    uint8_t tv_squish;
 } SavedSettings;
+
+/* Version 1 files stop after debug_hud. */
+#define SAVED_SETTINGS_V1_SIZE offsetof(SavedSettings, custom_vx)
+
+static SavedSettings settings_snapshot(const AppModel* m) {
+    SavedSettings s = {
+        .version         = SETTINGS_VERSION,
+        .thrust_mode     = (uint8_t)m->menu.thrust_mode,
+        .fuel_mode       = (uint8_t)m->menu.fuel_mode,
+        .difficulty      = (uint8_t)m->menu.difficulty,
+        .sound_level     = (uint8_t)m->menu.sound_level,
+        .vibration_level = (uint8_t)m->menu.vibration_level,
+        .debug_hud       = m->debug_hud,
+        .custom_vx       = m->menu.custom_vx,
+        .custom_vy       = m->menu.custom_vy,
+        .custom_angle    = m->menu.custom_angle,
+        .tv_squish       = (uint8_t)m->menu.tv_squish,
+    };
+    return s;
+}
+
+/* game.c keeps the custom limits and TV squish itself; push them over. */
+static void settings_apply_to_game(const AppModel* m) {
+    game_set_custom_limits(m->menu.custom_vx, m->menu.custom_vy, m->menu.custom_angle);
+    game_set_y_squish(tv_squish_factor[m->menu.tv_squish]);
+}
 
 static void settings_load(AppModel* m) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     File* file = storage_file_alloc(storage);
     if(storage_file_open(file, SETTINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
         SavedSettings s;
+        size_t n = storage_file_read(file, &s, sizeof(s));
         /* Every value indexes a label/volume table, so a damaged file must
-         * not get through: out-of-range values keep the defaults. */
-        if(storage_file_read(file, &s, sizeof(s)) == sizeof(s) &&
-           s.version == SETTINGS_VERSION &&
-           s.thrust_mode < ThrustModeCount && s.fuel_mode < FuelModeCount &&
-           s.difficulty < DifficultyCount && s.sound_level < SoundCount &&
-           s.vibration_level < VibrationCount) {
+         * not get through: out-of-range values keep the defaults. Version 1
+         * files predate the custom limits and TV squish. */
+        bool base_ok = n >= SAVED_SETTINGS_V1_SIZE &&
+                       (s.version == 1 || s.version == SETTINGS_VERSION) &&
+                       s.thrust_mode < ThrustModeCount && s.fuel_mode < FuelModeCount &&
+                       s.difficulty < DifficultyCount && s.sound_level < SoundCount &&
+                       s.vibration_level < VibrationCount;
+        if(base_ok) {
             m->menu.thrust_mode  = (ThrustMode)s.thrust_mode;
             m->menu.fuel_mode    = (FuelMode)s.fuel_mode;
             m->menu.difficulty   = (Difficulty)s.difficulty;
             m->menu.sound_level     = (SoundLevel)s.sound_level;
             m->menu.vibration_level = (VibrationLevel)s.vibration_level;
             m->debug_hud         = s.debug_hud != 0;
+        }
+        if(base_ok && s.version == SETTINGS_VERSION && n == sizeof(s) &&
+           s.custom_vx >= 1 && s.custom_vx <= CUSTOM_VX_MAX &&
+           s.custom_vy >= 1 && s.custom_vy <= CUSTOM_VY_MAX &&
+           s.custom_angle >= 1 && s.custom_angle <= CUSTOM_ANGLE_MAX &&
+           s.tv_squish < TvSquishCount) {
+            m->menu.custom_vx    = s.custom_vx;
+            m->menu.custom_vy    = s.custom_vy;
+            m->menu.custom_angle = s.custom_angle;
+            m->menu.tv_squish    = (TvSquish)s.tv_squish;
         }
         storage_file_close(file);
     }
@@ -155,20 +201,86 @@ static void settings_save(const AppModel* m) {
     storage_simply_mkdir(storage, EXT_PATH("apps_data/lunar_lander"));
     File* file = storage_file_alloc(storage);
     if(storage_file_open(file, SETTINGS_PATH, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
-        SavedSettings s = {
-            .version      = SETTINGS_VERSION,
-            .thrust_mode  = (uint8_t)m->menu.thrust_mode,
-            .fuel_mode    = (uint8_t)m->menu.fuel_mode,
-            .difficulty   = (uint8_t)m->menu.difficulty,
-            .sound_level     = (uint8_t)m->menu.sound_level,
-            .vibration_level = (uint8_t)m->menu.vibration_level,
-            .debug_hud    = m->debug_hud,
-        };
+        SavedSettings s = settings_snapshot(m);
         storage_file_write(file, &s, sizeof(s));
         storage_file_close(file);
     }
     storage_file_free(file);
     furi_record_close(RECORD_STORAGE);
+}
+
+/* ----- Settings and custom difficulty screens ------------------------------ */
+
+typedef enum {
+    SettingsRowSound = 0,
+    SettingsRowVibration,
+    SettingsRowDifficulty,   // OK opens the custom difficulty screen
+    SettingsRowTvSquish,
+    SettingsRowDebugHud,
+    SettingsRowCount,
+} SettingsRow;
+
+#define SETTINGS_ROWS_VISIBLE 4
+#define CUSTOM_ROWS           3
+
+static void settings_row_label(const AppModel* m, int row, char* buf, size_t size) {
+    switch(row) {
+        case SettingsRowSound:
+            snprintf(buf, size, "Sound: %s", sound_level_label[m->menu.sound_level]);
+            break;
+        case SettingsRowVibration:
+            snprintf(buf, size, "Vibration: %s", vibration_level_label[m->menu.vibration_level]);
+            break;
+        case SettingsRowDifficulty:
+            snprintf(buf, size, "Difficulty: %s", difficulty_label[m->menu.difficulty]);
+            break;
+        case SettingsRowTvSquish:
+            snprintf(buf, size, "TV squish: %s", tv_squish_label[m->menu.tv_squish]);
+            break;
+        default:
+            snprintf(buf, size, "Debug HUD: %s", m->debug_hud ? "On" : "Off");
+            break;
+    }
+}
+
+static int cycle(int value, int step, int count) {
+    return (value + step + count) % count;
+}
+
+static void settings_row_change(AppModel* m, int row, int step) {
+    switch(row) {
+        case SettingsRowSound:
+            m->menu.sound_level = (SoundLevel)cycle(m->menu.sound_level, step, SoundCount);
+            break;
+        case SettingsRowVibration:
+            m->menu.vibration_level =
+                (VibrationLevel)cycle(m->menu.vibration_level, step, VibrationCount);
+            break;
+        case SettingsRowDifficulty:
+            m->menu.difficulty = (Difficulty)cycle(m->menu.difficulty, step, DifficultyCount);
+            break;
+        case SettingsRowTvSquish:
+            m->menu.tv_squish = (TvSquish)cycle(m->menu.tv_squish, step, TvSquishCount);
+            break;
+        default:
+            m->debug_hud = !m->debug_hud;
+            break;
+    }
+}
+
+/* Custom limits step by 1 between 1 and Easy's value; they don't wrap. */
+static void custom_row_change(AppModel* m, int row, int step) {
+    uint8_t* value;
+    int max;
+    switch(row) {
+        case 0:  value = &m->menu.custom_vx;    max = CUSTOM_VX_MAX;    break;
+        case 1:  value = &m->menu.custom_vy;    max = CUSTOM_VY_MAX;    break;
+        default: value = &m->menu.custom_angle; max = CUSTOM_ANGLE_MAX; break;
+    }
+    int v = *value + step;
+    if(v < 1) v = 1;
+    if(v > max) v = max;
+    *value = (uint8_t)v;
 }
 
 /* ----- Callbacks --------------------------------------------------------- */
@@ -319,19 +431,35 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             canvas_draw_str_aligned(
                 canvas, SCREEN_W / 2, 2, AlignCenter, AlignTop, "SETTINGS");
             canvas_draw_line(canvas, 0, 12, SCREEN_W - 1, 12);
+            /* Four rows fit; the list scrolls to keep the focused row shown. */
+            int focus = app->model.settings_focus;
+            int first = focus >= SETTINGS_ROWS_VISIBLE ? focus - SETTINGS_ROWS_VISIBLE + 1 : 0;
             char buf[24];
-            snprintf(buf, sizeof(buf), "Sound: %s",
-                     sound_level_label[app->model.menu.sound_level]);
-            draw_selector_row(canvas, 14, buf, app->model.settings_focus == 0);
-            snprintf(buf, sizeof(buf), "Vibration: %s",
-                     vibration_level_label[app->model.menu.vibration_level]);
-            draw_selector_row(canvas, 26, buf, app->model.settings_focus == 1);
-            snprintf(buf, sizeof(buf), "Difficulty: %s",
-                     difficulty_label[app->model.menu.difficulty]);
-            draw_selector_row(canvas, 38, buf, app->model.settings_focus == 2);
-            draw_selector_row(canvas, 50,
-                app->model.debug_hud ? "Debug HUD: On" : "Debug HUD: Off",
-                app->model.settings_focus == 3);
+            for(int row = first; row < first + SETTINGS_ROWS_VISIBLE && row < SettingsRowCount;
+                row++) {
+                settings_row_label(&app->model, row, buf, sizeof(buf));
+                draw_selector_row(canvas, 14 + 12 * (row - first), buf, row == focus);
+            }
+            break;
+        }
+        case ScreenCustomDifficulty: {
+            const MenuState* ms = &app->model.menu;
+            canvas_set_font(canvas, FontPrimary);
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W / 2, 2, AlignCenter, AlignTop, "CUSTOM LIMITS");
+            canvas_draw_line(canvas, 0, 12, SCREEN_W - 1, 12);
+            char buf[24];
+            snprintf(buf, sizeof(buf), "Vx < %u", ms->custom_vx);
+            draw_selector_row(canvas, 14, buf, app->model.custom_focus == 0);
+            snprintf(buf, sizeof(buf), "Vy < %u", ms->custom_vy);
+            draw_selector_row(canvas, 26, buf, app->model.custom_focus == 1);
+            snprintf(buf, sizeof(buf), "Angle < %u deg", ms->custom_angle);
+            draw_selector_row(canvas, 38, buf, app->model.custom_focus == 2);
+            canvas_set_font(canvas, FontSecondary);
+            snprintf(buf, sizeof(buf), "Easy max: %d / %d / %d",
+                     CUSTOM_VX_MAX, CUSTOM_VY_MAX, CUSTOM_ANGLE_MAX);
+            canvas_draw_str_aligned(
+                canvas, SCREEN_W / 2, SCREEN_H - 1, AlignCenter, AlignBottom, buf);
             break;
         }
     }
@@ -409,8 +537,12 @@ static void set_screen(App* app, Screen new_screen) {
         if(period < 1) period = 1;
         furi_timer_start(app->tick_timer, period);
     }
-    if(new_screen == ScreenSettings && old != ScreenSettings) {
+    /* Coming back from the custom limits screen keeps the Difficulty row. */
+    if(new_screen == ScreenSettings && old == ScreenMenu) {
         m->settings_focus = 0;
+    }
+    if(new_screen == ScreenCustomDifficulty) {
+        m->custom_focus = 0;
     }
 }
 
@@ -425,6 +557,17 @@ static void handle_menu_action(App* app, MenuAction action) {
         case MenuActionExit:     m->should_exit = true; break;
         case MenuActionNone:     break;
     }
+}
+
+/* Back to the menu from a game screen, keeping a new high score (the
+ * tutorial doesn't count toward it). */
+static void leave_game(App* app) {
+    AppModel* m = &app->model;
+    if(m->screen == ScreenGame && m->game.score > m->high_score) {
+        m->high_score = m->game.score;
+        high_score_save(m->high_score);
+    }
+    set_screen(app, ScreenMenu);
 }
 
 static void handle_input_event(App* app, const InputEvent* ev) {
@@ -447,13 +590,9 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                ev->key == InputKeyUp && ev->type == InputTypePress) {
                 game_apply_tap_impulse(&m->game);
             }
-            GameAction a = game_input(&m->game, ev);
+            GameAction a = game_input(&m->game, ev, m->menu.thrust_mode);
             if(a == GameActionExitToMenu) {
-                if(m->game.score > m->high_score) {
-                    m->high_score = m->game.score;
-                    high_score_save(m->high_score);
-                }
-                set_screen(app, ScreenMenu);
+                leave_game(app);
             } else if(a == GameActionWin) {
                 m->game_complete_new_record = (m->game.score > m->high_score);
                 if(m->game_complete_new_record) {
@@ -472,6 +611,13 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                 m->menu.thrust_mode == ThrustModeVidyaTap) &&
                ev->key == InputKeyUp && ev->type == InputTypePress) {
                 game_apply_tap_impulse(&m->game);
+            }
+            /* Back on a popup leaves right away: the flight hasn't started,
+             * so the mid-flight tap/hold handling doesn't apply. */
+            if(m->tutorial_popup_showing && ev->key == InputKeyBack &&
+               (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
+                leave_game(app);
+                break;
             }
             /* Dismiss intro or transition popup. */
             if(m->tutorial_popup_showing &&
@@ -495,50 +641,36 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                 }
                 break;
             }
-            GameAction a = game_input(&m->game, ev);
-            if(a == GameActionExitToMenu) set_screen(app, ScreenMenu);
+            GameAction a = game_input(&m->game, ev, m->menu.thrust_mode);
+            if(a == GameActionExitToMenu) leave_game(app);
             break;
         }
         case ScreenSettings: {
             if (ev->type != InputTypeShort && ev->type != InputTypeRepeat) break;
-            SoundLevel     prev_sound = m->menu.sound_level;
-            VibrationLevel prev_vibro = m->menu.vibration_level;
-            Difficulty     prev_diff  = m->menu.difficulty;
-            bool           prev_debug = m->debug_hud;
+            SavedSettings before = settings_snapshot(m);
             switch (ev->key) {
                 case InputKeyUp:
                     if (m->settings_focus > 0) m->settings_focus--;
                     break;
                 case InputKeyDown:
-                    if (m->settings_focus < 3) m->settings_focus++;
+                    if (m->settings_focus < SettingsRowCount - 1) m->settings_focus++;
                     break;
                 case InputKeyLeft:
-                    if (m->settings_focus == 0)
-                        m->menu.sound_level = (SoundLevel)((m->menu.sound_level + SoundCount - 1) % SoundCount);
-                    else if (m->settings_focus == 1)
-                        m->menu.vibration_level = (VibrationLevel)((m->menu.vibration_level + VibrationCount - 1) % VibrationCount);
-                    else if (m->settings_focus == 2)
-                        m->menu.difficulty = (Difficulty)((m->menu.difficulty + DifficultyCount - 1) % DifficultyCount);
-                    else if (m->settings_focus == 3)
-                        m->debug_hud = !m->debug_hud;
+                    settings_row_change(m, m->settings_focus, -1);
                     break;
                 case InputKeyRight:
-                    if (m->settings_focus == 0)
-                        m->menu.sound_level = (SoundLevel)((m->menu.sound_level + 1) % SoundCount);
-                    else if (m->settings_focus == 1)
-                        m->menu.vibration_level = (VibrationLevel)((m->menu.vibration_level + 1) % VibrationCount);
-                    else if (m->settings_focus == 2)
-                        m->menu.difficulty = (Difficulty)((m->menu.difficulty + 1) % DifficultyCount);
-                    else if (m->settings_focus == 3)
-                        m->debug_hud = !m->debug_hud;
+                    settings_row_change(m, m->settings_focus, +1);
                     break;
                 case InputKeyOk:
-                    if (m->settings_focus == 0)
-                        m->menu.sound_level = (SoundLevel)((m->menu.sound_level + 1) % SoundCount);
-                    else if (m->settings_focus == 1)
-                        m->menu.vibration_level = (VibrationLevel)((m->menu.vibration_level + 1) % VibrationCount);
-                    else if (m->settings_focus == 3)
-                        m->debug_hud = !m->debug_hud;
+                    if (m->settings_focus == SettingsRowDifficulty) {
+                        /* OK on Difficulty selects Custom and opens its limits. */
+                        if (ev->type == InputTypeShort) {
+                            m->menu.difficulty = DifficultyCustom;
+                            set_screen(app, ScreenCustomDifficulty);
+                        }
+                    } else {
+                        settings_row_change(m, m->settings_focus, +1);
+                    }
                     break;
                 case InputKeyBack:
                     set_screen(app, ScreenMenu);
@@ -547,9 +679,40 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                     break;
             }
             /* Only touch the SD card when a value actually changed. */
-            if(m->menu.sound_level != prev_sound || m->menu.vibration_level != prev_vibro ||
-               m->menu.difficulty != prev_diff || m->debug_hud != prev_debug) {
+            SavedSettings after = settings_snapshot(m);
+            if(memcmp(&before, &after, sizeof(before)) != 0) {
                 settings_save(&app->model);
+                settings_apply_to_game(&app->model);
+            }
+            break;
+        }
+        case ScreenCustomDifficulty: {
+            if (ev->type != InputTypeShort && ev->type != InputTypeRepeat) break;
+            SavedSettings before = settings_snapshot(m);
+            switch (ev->key) {
+                case InputKeyUp:
+                    if (m->custom_focus > 0) m->custom_focus--;
+                    break;
+                case InputKeyDown:
+                    if (m->custom_focus < CUSTOM_ROWS - 1) m->custom_focus++;
+                    break;
+                case InputKeyLeft:
+                    custom_row_change(m, m->custom_focus, -1);
+                    break;
+                case InputKeyRight:
+                    custom_row_change(m, m->custom_focus, +1);
+                    break;
+                case InputKeyOk:
+                case InputKeyBack:
+                    if (ev->type == InputTypeShort) set_screen(app, ScreenSettings);
+                    break;
+                default:
+                    break;
+            }
+            SavedSettings after = settings_snapshot(m);
+            if(memcmp(&before, &after, sizeof(before)) != 0) {
+                settings_save(&app->model);
+                settings_apply_to_game(&app->model);
             }
             break;
         }
@@ -586,6 +749,12 @@ static void handle_tick(App* app, float dt) {
             }
         }
         game_tick(&m->game, m->menu.thrust_mode, dt);
+        if(m->game.exit_requested) {
+            /* Back held long enough mid-flight. Return now: audio is already
+             * stopped, and an update would switch the vibro back on. */
+            leave_game(app);
+            return;
+        }
         game_audio_update(&m->game, m->menu.thrust_mode,
                           m->menu.sound_level, m->menu.vibration_level);
 
@@ -623,6 +792,7 @@ int32_t lunar_lander_app(void* p) {
 
     menu_init(&app->model.menu);
     settings_load(&app->model);
+    settings_apply_to_game(&app->model);
     app->model.screen = ScreenMenu;
     app->model.should_exit = false;
     high_score_load(&app->model.high_score);

@@ -45,6 +45,7 @@ typedef enum {
     ScreenSettings,
     ScreenGameComplete,
     ScreenScore,
+    ScreenCustomDifficulty,
 } Screen;
 
 typedef enum {
@@ -52,10 +53,30 @@ typedef enum {
     DifficultyMedium,    // baseline (original values)
     DifficultyHard,      // safe thresholds halved
     DifficultyRealistic, // Vy<1, Vx<1, angle<3°
+    DifficultyCustom,    // player-set limits, never looser than Easy
     DifficultyCount,
 } Difficulty;
 
 extern const char* const difficulty_label[DifficultyCount];
+
+/* Custom difficulty ranges: 1 up to Easy's limits. */
+#define CUSTOM_VX_MAX     8
+#define CUSTOM_VY_MAX     16
+#define CUSTOM_ANGLE_MAX  25   // degrees
+
+/* TV mode squishes the playfield vertically. The Video Game Module shows
+ * each Flipper pixel 2 wide by 3 tall, so a TV picture looks stretched:
+ * 67% undoes that on a 4:3 picture, ~90% if the TV stretches it to 16:9. */
+typedef enum {
+    TvSquishOff = 0,
+    TvSquish90,
+    TvSquish80,
+    TvSquish67,
+    TvSquishCount,
+} TvSquish;
+
+extern const char* const tv_squish_label[TvSquishCount];
+extern const float       tv_squish_factor[TvSquishCount];
 
 typedef enum {
     SoundOff = 0,

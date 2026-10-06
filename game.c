@@ -42,6 +42,11 @@
 #define TILT_THRUST_DEAD   3.0f    // pitch dead-zone (degrees) before thrust starts
 #define TILT_THRUST_MAX   35.0f    // pitch degrees that yield 100% thrust
 
+/* Back while flying: tap = re-zero tilt, hold = back to the menu */
+#define BACK_HOLD_EXIT     3.0f    // sec of holding Back to leave mid-flight
+#define BACK_HOLD_SHOW     0.3f    // sec before the hold-to-exit box shows (taps never do)
+#define TOAST_TIME         1.2f    // sec a toast ("Tilt zeroed") stays up
+
 #define START_FUEL         100.0f
 
 /* ----- Audio / feedback tunables ----------------------------------------- */
@@ -209,11 +214,24 @@ static void pads_place(GameState* g) {
 
 /* ----- Init -------------------------------------------------------------- */
 
+/* DifficultyCustom limits, set from Settings via game_set_custom_limits().
+ * Defaults match Easy. */
+static float custom_vx    = 8.0f;
+static float custom_vy    = 16.0f;
+static float custom_angle = 0.44f;   // radians
+
+void game_set_custom_limits(int vx, int vy, int angle_deg) {
+    custom_vx    = (float)vx;
+    custom_vy    = (float)vy;
+    custom_angle = (float)angle_deg * (3.14159265f / 180.0f);
+}
+
 static void apply_difficulty(GameState* g, Difficulty d) {
     switch(d) {
         case DifficultyEasy:       g->safe_vy = 16.0f; g->safe_vx = 8.0f; g->safe_angle = 0.44f;  break;
         case DifficultyHard:       g->safe_vy =  4.0f; g->safe_vx = 2.0f; g->safe_angle = 0.11f;  break;
         case DifficultyRealistic:  g->safe_vy =  1.0f; g->safe_vx = 1.0f; g->safe_angle = 0.052f; break;
+        case DifficultyCustom:     g->safe_vy = custom_vy; g->safe_vx = custom_vx; g->safe_angle = custom_angle; break;
         default: /* Medium */      g->safe_vy =  8.0f; g->safe_vx = 4.0f; g->safe_angle = 0.22f;  break;
     }
 }
@@ -304,11 +322,42 @@ void game_init_tutorial(GameState* g, int tut_level, int score, Difficulty diffi
 
 /* ----- Input ------------------------------------------------------------- */
 
-GameAction game_input(GameState* g, const InputEvent* ev) {
-    /* Back from a status screen, or from flying, returns to menu. */
-    if (ev->key == InputKeyBack &&
-        (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
-        return GameActionExitToMenu;
+static bool mode_uses_tilt(ThrustMode m) {
+    return m == ThrustModeVidyaTap || m == ThrustModeVidyaBinary ||
+           m == ThrustModeVidyaRamp || m == ThrustModeVidyaFull;
+}
+
+static void show_toast(GameState* g, const char* msg) {
+    g->toast = msg;
+    g->toast_time = TOAST_TIME;
+}
+
+GameAction game_input(GameState* g, const InputEvent* ev, ThrustMode thrust_mode) {
+    if (ev->key == InputKeyBack) {
+        if (g->status == GameStatusFlying) {
+            /* Mid-flight a tap re-zeroes tilt steering (the VGM's zero drifts),
+             * and leaving takes a BACK_HOLD_EXIT hold, timed in game_tick, so
+             * a tap can't end the run by accident. */
+            if (ev->type == InputTypePress) {
+                g->back_held = true;
+                g->back_hold_time = 0.0f;
+            } else if (ev->type == InputTypeRelease) {
+                g->back_held = false;
+            } else if (ev->type == InputTypeShort) {
+                if (mode_uses_tilt(thrust_mode)) {
+                    g->tilt_roll_offset = g->tilt_roll;
+                    show_toast(g, "Tilt zeroed");
+                } else {
+                    show_toast(g, "Hold BACK to exit");
+                }
+            }
+            return GameActionNone;
+        }
+        /* From a status banner, Back returns to the menu. */
+        if (ev->type == InputTypeShort || ev->type == InputTypeLong) {
+            return GameActionExitToMenu;
+        }
+        return GameActionNone;
     }
 
     /* Track held state for Left/Right/Up. The Flipper sends Press + Release
@@ -446,11 +495,14 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
 
     g->elapsed += dt;
 
+    if (g->toast_time > 0.0f) g->toast_time -= dt;
+    if (g->back_held) {
+        g->back_hold_time += dt;
+        if (g->back_hold_time >= BACK_HOLD_EXIT) g->exit_requested = true;
+    }
+
     /* Rotation — buttons for non-VGM modes; direct angle mapping for VGM modes. */
-    if(mode == ThrustModeVidyaTap    ||
-       mode == ThrustModeVidyaBinary ||
-       mode == ThrustModeVidyaRamp   ||
-       mode == ThrustModeVidyaFull) {
+    if(mode_uses_tilt(mode)) {
         float cal_roll = g->tilt_roll - g->tilt_roll_offset;
         g->angle = -cal_roll * (3.14159265f / 180.0f);
     } else {
@@ -558,42 +610,77 @@ static void draw_degree_sym(Canvas* canvas, int x, int y) {
     canvas_draw_dot(canvas, x+1, y+2);
 }
 
+/* TV mode squish (1.0 = off), set from Settings via game_set_y_squish(). */
+static float y_squish = 1.0f;
+
+void game_set_y_squish(float squish) {
+    y_squish = (squish > 0.0f && squish <= 1.0f) ? squish : 1.0f;
+}
+
+/* World y (1 px = 1 m) to screen y. TV mode squishes the world toward the
+ * bottom row; physics and collision stay in world units. With TV mode off
+ * this is exactly y. */
+static float screen_y(float y) {
+    return (float)(SCREEN_H - 1) - ((float)(SCREEN_H - 1) - y) * y_squish;
+}
+
+/* True while any pixel of the (upright) lander is inside the box on top of
+ * pad i that is (pad width + 1) columns wide and (lander height + 1) rows
+ * tall — where a label drawn above the pad would sit right over the lander
+ * as it touches down. */
+static bool lander_over_pad(const GameState* g, int i) {
+    int pad_y    = g->terrain[g->pad_x[i]];
+    int lander_h = (int)(LANDER_FOOT_DY - LANDER_BODY_TOP) + 1;   // 7 rows
+    int zone_x0  = g->pad_x[i];
+    int zone_x1  = g->pad_x[i] + g->pad_w[i];
+    int zone_y0  = pad_y - (lander_h + 1);
+    int left     = (int)floorf(g->x - LANDER_FOOT_DX);
+    int right    = (int)floorf(g->x + LANDER_FOOT_DX);
+    int top      = (int)floorf(g->y + LANDER_BODY_TOP);
+    int bottom   = (int)floorf(g->y + LANDER_FOOT_DY);
+    return right >= zone_x0 && left <= zone_x1 && bottom >= zone_y0 && top <= pad_y;
+}
+
 static void draw_terrain(Canvas* canvas, const GameState* g) {
     /* Solid fill: each column is a bar from the terrain surface down to the
-     * screen bottom.  The top pixel of each bar is exactly terrain[x], so
-     * what despike wrote is exactly what's drawn — no Bresenham smear from
-     * neighbours.
+     * screen bottom.  With TV mode off the top pixel of each bar is exactly
+     * terrain[x], so what despike wrote is exactly what's drawn — no
+     * Bresenham smear from neighbours.
      *
      * Painted as horizontal runs, one row at a time, rather than one
      * vertical canvas_draw_line per column: u8g2 plots a line pixel by
      * pixel through four calls (~110 instructions each), and this fill is
      * ~2,300 pixels every frame. A 1-px-tall box is one tight loop
      * (~8 instructions per pixel). Same pixels either way. */
-    int top = SCREEN_H;
+    uint8_t top[SCREEN_W];   // screen row of each column's surface
+    int min_top = SCREEN_H;
     for (int x = 0; x < SCREEN_W; x++) {
-        if (g->terrain[x] < top) top = g->terrain[x];
+        int t = (int)(screen_y((float)g->terrain[x]) + 0.5f);
+        top[x] = (uint8_t)t;
+        if (t < min_top) min_top = t;
     }
-    for (int y = top; y < SCREEN_H; y++) {
+    for (int y = min_top; y < SCREEN_H; y++) {
         int x = 0;
         while (x < SCREEN_W) {
-            if (g->terrain[x] > y) {
+            if (top[x] > y) {
                 x++;
                 continue;
             }
             int x0 = x;
-            while (x < SCREEN_W && g->terrain[x] <= y) x++;
+            while (x < SCREEN_W && top[x] <= y) x++;
             canvas_draw_box(canvas, x0, y, x - x0, 1);
         }
     }
     /* Pads: multiplier label drawn UNDER the pad (inside the solid fill)
      * using ColorWhite so it shows as bright text on dark ground.
      * Falls back to ABOVE the pad (in bright sky, ColorBlack) when there
-     * is no room below. */
+     * is no room below — and then hides while the lander is over the pad,
+     * where it would be in the way. */
     canvas_set_font(canvas, FontSecondary);
     const int label_h = 7;
     for (int i = 0; i < g->num_pads; i++) {
         int px = g->pad_x[i];
-        int py = (int)g->terrain[px];
+        int py = top[px];
         int pw = (int)g->pad_w[i];
 
         char buf[8];
@@ -606,7 +693,7 @@ static void draw_terrain(Canvas* canvas, const GameState* g) {
             canvas_draw_str_aligned(
                 canvas, px + pw / 2, label_top_below, AlignCenter, AlignTop, buf);
             canvas_set_color(canvas, ColorBlack);
-        } else if (label_top_above >= 0) {
+        } else if (label_top_above >= 0 && !lander_over_pad(g, i)) {
             canvas_draw_str_aligned(
                 canvas, px + pw / 2, py - 2, AlignCenter, AlignBottom, buf);
         }
@@ -621,9 +708,10 @@ static void draw_lander(Canvas* canvas, const GameState* g) {
     if (g->fuel > 0.0f && g->status == GameStatusFlying) {
         thrust_for_draw = g->current_thrust;
     }
-    lander_draw_rotated(canvas, g->x, g->y, g->angle, thrust_for_draw);
+    float sy = screen_y(g->y);
+    lander_draw_rotated(canvas, g->x, sy, g->angle, thrust_for_draw, y_squish);
 
-    if(g->y < 0.0f) {
+    if(sy < 0.0f) {
         int ix = clamp_int((int)g->x, 2, SCREEN_W - 3);
         canvas_draw_line(canvas, ix - 2, 0, ix + 2, 0);
         canvas_draw_line(canvas, ix - 1, 1, ix + 1, 1);
@@ -641,7 +729,7 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
      * has fallen below the bottom of the top line of HUD text (~y=7).
      * Body top is at g->y + LANDER_BODY_TOP (=g->y - 3); the +1 margin keeps
      * it from popping in the moment the body grazes the text line. */
-    if(g->y > 11.0f) {
+    if(screen_y(g->y) > 11.0f) {
         snprintf(buf, sizeof(buf), g->is_tutorial ? "T%d" : "L%d", g->level);
         canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, buf);
     }
@@ -847,6 +935,34 @@ void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_m
     }
 }
 
+/* Mid-flight messages, in a small white box so they read over terrain: the
+ * hold-to-exit progress while Back is held, otherwise a short toast. Kept
+ * below the HUD rows so the debug overlay doesn't cover them. */
+static void draw_flight_messages(Canvas* canvas, const GameState* g) {
+    canvas_set_font(canvas, FontSecondary);
+    if (g->back_held && g->back_hold_time > BACK_HOLD_SHOW) {
+        const int bw = 72, bh = 18, bx = (SCREEN_W - bw) / 2, by = 26;
+        canvas_set_color(canvas, ColorWhite);
+        canvas_draw_box(canvas, bx, by, bw, bh);
+        canvas_set_color(canvas, ColorBlack);
+        canvas_draw_rframe(canvas, bx, by, bw, bh, 2);
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 6, AlignCenter, AlignCenter, "Hold to exit");
+        float p = g->back_hold_time / BACK_HOLD_EXIT;
+        if (p > 1.0f) p = 1.0f;
+        canvas_draw_frame(canvas, bx + 6, by + 11, bw - 12, 4);
+        canvas_draw_box(canvas, bx + 6, by + 11, (size_t)((bw - 12) * p), 4);
+    } else if (g->toast && g->toast_time > 0.0f) {
+        const int bh = 11, by = 28;
+        int bw = (int)canvas_string_width(canvas, g->toast) + 10;
+        int bx = (SCREEN_W - bw) / 2;
+        canvas_set_color(canvas, ColorWhite);
+        canvas_draw_box(canvas, bx, by, bw, bh);
+        canvas_set_color(canvas, ColorBlack);
+        canvas_draw_rframe(canvas, bx, by, bw, bh, 2);
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 6, AlignCenter, AlignCenter, g->toast);
+    }
+}
+
 void game_draw(Canvas* canvas, const GameState* g) {
     draw_terrain(canvas, g);
     draw_lander(canvas, g);
@@ -867,6 +983,7 @@ void game_draw(Canvas* canvas, const GameState* g) {
     }
 
     if(!g->hud_hidden) draw_hud(canvas, g);
+    if(g->status == GameStatusFlying) draw_flight_messages(canvas, g);
 
     /* Dim the whole frame when the status banner is up. */
     if(game_banner_visible(g)) draw_dim_overlay(canvas);
