@@ -43,9 +43,9 @@
 #define TILT_THRUST_MAX   35.0f    // pitch degrees that yield 100% thrust
 
 /* Back while flying: tap = re-zero tilt, hold = back to the menu */
-#define BACK_HOLD_EXIT     3.0f    // sec of holding Back to leave mid-flight
+#define BACK_HOLD_EXIT     1.0f    // sec of holding Back to leave mid-flight
 #define BACK_HOLD_SHOW     0.3f    // sec before the hold-to-exit box shows (taps never do)
-#define TOAST_TIME         1.2f    // sec a toast ("Tilt zeroed") stays up
+#define TOAST_TIME         0.5f    // sec a toast ("Tilt zeroed") stays up
 
 #define START_FUEL         100.0f
 
