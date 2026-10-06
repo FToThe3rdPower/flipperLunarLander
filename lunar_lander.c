@@ -27,6 +27,16 @@
 
 #define TICK_HZ 60
 
+/* In-game redraw caps, in ms between frames. Each frame goes to the LCD over
+ * SPI and, with a Video Game Module on HDMI, to the TV over a 1.84 Mbaud
+ * serial link (~6 ms per frame), and the firmware busy-waits on both. That
+ * load starves its lowest-priority thread, which delivers our ticks and key
+ * releases. Physics still runs every tick; the VGM repeats each frame on
+ * the TV. 28 ms = every 2nd 16 ms tick (~31 fps); 66 ms (~15 fps) still
+ * covers the 2.5-3 Hz banner and crash-flash blinking. */
+#define FRAME_MS       28
+#define STILL_FRAME_MS 66
+
 typedef enum {
     AppEventInput = 0,
     AppEventTick,
@@ -71,6 +81,7 @@ typedef struct {
     Gui* gui;
     ViewPort* view_port;
     uint32_t last_tick_ms;
+    uint32_t last_draw_tick;      // kernel tick of the last in-game redraw request
     volatile bool tick_pending;   // a tick is already in the queue; set by the timer, cleared by the loop
     AppModel model;
 } App;
@@ -393,6 +404,7 @@ static void set_screen(App* app, Screen new_screen) {
         m->debug_gap_ms      = 0;
         m->debug_gap_ms_max  = 0;
         app->last_tick_ms = furi_get_tick();
+        app->last_draw_tick = app->last_tick_ms - furi_kernel_get_tick_frequency(); // first tick draws
         uint32_t period = furi_kernel_get_tick_frequency() / TICK_HZ;
         if(period < 1) period = 1;
         furi_timer_start(app->tick_timer, period);
@@ -658,10 +670,22 @@ int32_t lunar_lander_app(void* p) {
         }
 
         furi_mutex_release(app->mutex);
-        /* In-game, redraw once per tick: a key event shows up on the next
-         * tick anyway (<= 16 ms), so redrawing for it too is extra drawing. */
+        /* Off the game screens, redraw after every event. In-game, redraw only
+         * on ticks, capped by FRAME_MS (STILL_FRAME_MS while a banner or the
+         * tutorial popup is up); a key event shows up on the next frame. */
         bool live = (app->model.screen == ScreenGame || app->model.screen == ScreenTutorial);
-        if (ev.type == AppEventTick || !live) view_port_update(app->view_port);
+        if (!live) {
+            view_port_update(app->view_port);
+        } else if (ev.type == AppEventTick) {
+            bool still = app->model.tutorial_popup_showing ||
+                         app->model.game.status != GameStatusFlying;
+            uint32_t now = furi_get_tick();
+            uint32_t min_gap = (still ? STILL_FRAME_MS : FRAME_MS) * tick_freq / 1000;
+            if (now - app->last_draw_tick >= min_gap) {
+                app->last_draw_tick = now;
+                view_port_update(app->view_port);
+            }
+        }
     }
 
     furi_timer_stop(app->tick_timer);
