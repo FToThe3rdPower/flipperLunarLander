@@ -64,6 +64,7 @@ typedef struct {
     Gui* gui;
     ViewPort* view_port;
     uint32_t last_tick_ms;
+    volatile bool tick_pending;   // a tick is already in the queue; set by the timer, cleared by the loop
     AppModel model;
 } App;
 
@@ -305,8 +306,14 @@ static void input_callback(InputEvent* event, void* ctx) {
 
 static void tick_timer_callback(void* ctx) {
     App* app = ctx;
+    /* Keep at most one tick in the queue. If the loop falls behind, extra
+     * ticks would fill it and input_callback's zero-timeout put would drop
+     * key Press/Release events, leaving Up/Left/Right stuck held (or never
+     * held). Skipped ticks don't slow physics: dt comes from the clock. */
+    if (app->tick_pending) return;
+    app->tick_pending = true;
     AppEvent ev = {.type = AppEventTick};
-    furi_message_queue_put(app->queue, &ev, 0);
+    if (furi_message_queue_put(app->queue, &ev, 0) != FuriStatusOk) app->tick_pending = false;
 }
 
 /* ----- Dispatch ---------------------------------------------------------- */
@@ -572,6 +579,7 @@ int32_t lunar_lander_app(void* p) {
         if (ev.type == AppEventInput) {
             handle_input_event(app, &ev.input);
         } else { // AppEventTick
+            app->tick_pending = false;
             uint32_t now = furi_get_tick();
             float dt = (float)(now - app->last_tick_ms) / (float)tick_freq;
             app->last_tick_ms = now;
