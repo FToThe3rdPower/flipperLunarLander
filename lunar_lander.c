@@ -9,12 +9,12 @@
  */
 
 #include <furi.h>
+#include <furi_hal_cortex.h>
 #include <gui/gui.h>
 #include <input/input.h>
 #include <storage/storage.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 #define HIGH_SCORE_PATH EXT_PATH("apps_data/lunar_lander/score.bin")
 #define SETTINGS_PATH   EXT_PATH("apps_data/lunar_lander/lunarLanderSettings.bin")
@@ -55,6 +55,12 @@ typedef struct {
     uint32_t debug_free_heap;
     uint8_t  debug_queue_depth;
     uint8_t  debug_peak_queue;
+    /* Longest game_draw and longest gap between processed ticks: the _max
+     * fields collect the current ~1 s window, the others show the last one. */
+    uint32_t debug_draw_us;
+    uint32_t debug_draw_us_max;
+    uint32_t debug_gap_ms;
+    uint32_t debug_gap_ms_max;
 } AppModel;
 
 typedef struct {
@@ -157,7 +163,7 @@ static void draw_debug_overlay(Canvas* canvas, const AppModel* m) {
     canvas_set_color(canvas, ColorBlack);
     canvas_set_font(canvas, FontSecondary);
 
-    char buf[24];
+    char buf[32];
 
     /* Row 0: free heap + tick counter */
     snprintf(buf, sizeof(buf), "HP:%lu TK:%lu",
@@ -165,10 +171,15 @@ static void draw_debug_overlay(Canvas* canvas, const AppModel* m) {
              (unsigned long)(m->debug_tick_count % 100000UL));
     canvas_draw_str(canvas, 0, 7, buf);
 
-    /* Row 1: queue depth (current/peak) + speed magnitude */
-    int speed = (int)sqrtf(g->vx * g->vx + g->vy * g->vy);
-    snprintf(buf, sizeof(buf), "Q:%u/%u SP:%d",
-             m->debug_queue_depth, m->debug_peak_queue, speed);
+    /* Row 1: queue depth (current/peak), longest frame draw (ms) and longest
+     * gap between game ticks (ms) over the last ~1 s. Ticks are due every
+     * 16 ms; a big TG means they ran late, usually because the Flipper's
+     * timer thread (which also delivers key releases) got no CPU time. */
+    snprintf(buf, sizeof(buf), "Q:%u/%u DR:%lu.%lu TG:%lu",
+             m->debug_queue_depth, m->debug_peak_queue,
+             (unsigned long)(m->debug_draw_us / 1000),
+             (unsigned long)(m->debug_draw_us % 1000 / 100),
+             (unsigned long)m->debug_gap_ms);
     canvas_draw_str(canvas, 0, 15, buf);
 
     /* Row 2: angle + velocities, or a NaN/runaway warning */
@@ -186,6 +197,16 @@ static void draw_debug_overlay(Canvas* canvas, const AppModel* m) {
     canvas_draw_str(canvas, 0, 23, buf);
 }
 
+/* game_draw, keeping the longest draw time of the current debug window.
+ * The cortex timer's .start is a snapshot of the CPU cycle counter. */
+static void draw_game_timed(Canvas* canvas, AppModel* m) {
+    uint32_t start = furi_hal_cortex_timer_get(0).start;
+    game_draw(canvas, &m->game);
+    uint32_t us = (furi_hal_cortex_timer_get(0).start - start) /
+                  furi_hal_cortex_instructions_per_microsecond();
+    if(us > m->debug_draw_us_max) m->debug_draw_us_max = us;
+}
+
 static void draw_callback(Canvas* canvas, void* ctx) {
     App* app = ctx;
     if (furi_mutex_acquire(app->mutex, 25) != FuriStatusOk) return;
@@ -197,12 +218,12 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             break;
         case ScreenGame:
             app->model.game.hud_hidden = app->model.debug_hud;
-            game_draw(canvas, &app->model.game);
+            draw_game_timed(canvas, &app->model);
             if(app->model.debug_hud) draw_debug_overlay(canvas, &app->model);
             break;
         case ScreenTutorial:
             app->model.game.hud_hidden = app->model.debug_hud;
-            game_draw(canvas, &app->model.game);
+            draw_game_timed(canvas, &app->model);
             if(app->model.tutorial_popup_showing) {
                 game_draw_tutorial_popup(canvas,
                                          app->model.tutorial_level,
@@ -353,6 +374,10 @@ static void set_screen(App* app, Screen new_screen) {
         m->debug_peak_queue  = 0;
         m->debug_queue_depth = 0;
         m->debug_free_heap   = 0;
+        m->debug_draw_us     = 0;
+        m->debug_draw_us_max = 0;
+        m->debug_gap_ms      = 0;
+        m->debug_gap_ms_max  = 0;
         app->last_tick_ms = furi_get_tick();
         uint32_t period = furi_kernel_get_tick_frequency() / TICK_HZ;
         if(period < 1) period = 1;
@@ -531,12 +556,20 @@ static void handle_tick(App* app, float dt) {
         if((uint8_t)qd > m->debug_peak_queue) m->debug_peak_queue = (uint8_t)qd;
         m->debug_queue_depth = (uint8_t)(qd < 255 ? qd : 255);
         m->debug_free_heap   = (uint32_t)memmgr_get_free_heap();
+        if(m->debug_tick_count % 60 == 0) {
+            m->debug_draw_us     = m->debug_draw_us_max;
+            m->debug_gap_ms      = m->debug_gap_ms_max;
+            m->debug_draw_us_max = 0;
+            m->debug_gap_ms_max  = 0;
+        }
         if(m->debug_hud && (m->debug_tick_count % 10 == 0)) {
             int deg = (int)(m->game.angle * (180.0f / 3.14159265f));
-            FURI_LOG_I("LunarDbg", "HP:%lu TK:%lu Q:%u A:%d X:%d Y:%d",
+            FURI_LOG_I("LunarDbg", "HP:%lu TK:%lu Q:%u DR:%luus TG:%lums A:%d X:%d Y:%d",
                        (unsigned long)m->debug_free_heap,
                        (unsigned long)m->debug_tick_count,
                        (unsigned)m->debug_queue_depth,
+                       (unsigned long)m->debug_draw_us,
+                       (unsigned long)m->debug_gap_ms,
                        deg, (int)m->game.vx, (int)m->game.vy);
         }
     }
@@ -581,6 +614,8 @@ int32_t lunar_lander_app(void* p) {
         } else { // AppEventTick
             app->tick_pending = false;
             uint32_t now = furi_get_tick();
+            uint32_t gap_ms = (now - app->last_tick_ms) * 1000 / tick_freq;
+            if (gap_ms > app->model.debug_gap_ms_max) app->model.debug_gap_ms_max = gap_ms;
             float dt = (float)(now - app->last_tick_ms) / (float)tick_freq;
             app->last_tick_ms = now;
             /* Guard against giant dt after a stall. */
@@ -589,7 +624,10 @@ int32_t lunar_lander_app(void* p) {
         }
 
         furi_mutex_release(app->mutex);
-        view_port_update(app->view_port);
+        /* In-game, redraw once per tick: a key event shows up on the next
+         * tick anyway (<= 16 ms), so redrawing for it too is extra drawing. */
+        bool live = (app->model.screen == ScreenGame || app->model.screen == ScreenTutorial);
+        if (ev.type == AppEventTick || !live) view_port_update(app->view_port);
     }
 
     furi_timer_stop(app->tick_timer);

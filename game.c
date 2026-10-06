@@ -567,12 +567,31 @@ static void draw_degree_sym(Canvas* canvas, int x, int y) {
 }
 
 static void draw_terrain(Canvas* canvas, const GameState* g) {
-    /* Solid fill: each column is a vertical bar from the terrain surface
-     * down to the screen bottom.  The top pixel of each bar is exactly
-     * terrain[x], so what despike wrote is exactly what's drawn — no
-     * Bresenham smear from neighbours. */
+    /* Solid fill: each column is a bar from the terrain surface down to the
+     * screen bottom.  The top pixel of each bar is exactly terrain[x], so
+     * what despike wrote is exactly what's drawn — no Bresenham smear from
+     * neighbours.
+     *
+     * Painted as horizontal runs, one row at a time, rather than one
+     * vertical canvas_draw_line per column: u8g2 plots a line pixel by
+     * pixel through four calls (~110 instructions each), and this fill is
+     * ~2,300 pixels every frame. A 1-px-tall box is one tight loop
+     * (~8 instructions per pixel). Same pixels either way. */
+    int top = SCREEN_H;
     for (int x = 0; x < SCREEN_W; x++) {
-        canvas_draw_line(canvas, x, (int)g->terrain[x], x, SCREEN_H - 1);
+        if (g->terrain[x] < top) top = g->terrain[x];
+    }
+    for (int y = top; y < SCREEN_H; y++) {
+        int x = 0;
+        while (x < SCREEN_W) {
+            if (g->terrain[x] > y) {
+                x++;
+                continue;
+            }
+            int x0 = x;
+            while (x < SCREEN_W && g->terrain[x] <= y) x++;
+            canvas_draw_box(canvas, x0, y, x - x0, 1);
+        }
     }
     /* Pads: multiplier label drawn UNDER the pad (inside the solid fill)
      * using ColorWhite so it shows as bright text on dark ground.
