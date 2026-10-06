@@ -21,11 +21,13 @@
 #define TERRAIN_BOT_Y      (SCREEN_H - 1)  // deepest valley = bottom row of screen
 #define DESPIKE_HEIGHT     5       // a column must be this many px above BOTH x±2 neighbours to be a spike
 
+/* Scoring */
 #define HIGHEST_LEVEL      30      // bump this when adding levels; scoring depends on it
-/* Distance thresholds (from spawn center) for multiplier tiers 1x/2x/3x/5x */
+// Distance thresholds (from spawn center) for multiplier tiers 1x/2x/3x/5x
 #define MUL_1X_THRESH      8              // basically right below spawn
 #define MUL_2X_THRESH      (SCREEN_W / 5) // ~25 px
 #define MUL_3X_THRESH      (SCREEN_W / 3) // ~42 px — beyond this → 5x
+#define MULTIPLIER_DISAPPEARING_HEIGHT // The height at which the multiplier character disappears when the lander enters it's area (PAD_WIDTH * MULTIPLIER_DISAPPEARING_HEIGHT)
 
 #define GRAVITY            6.0f    // pixels/sec^2 downward
 #define THRUST_MAX         18.0f   // pixels/sec^2 along lander up-axis at full thrust
@@ -36,7 +38,7 @@
 #define ROT_RATE           1.8f    // radians/sec while Left/Right held
 #define WRAP_X             1       // wrap horizontally (classic)
 
-/* Safe-landing thresholds come from the Difficulty — see apply_difficulty(). */
+/* Safe-landing parameters come from the Difficulty — see apply_difficulty(). */
 
 /* VGM tilt control parameters (steering is a 1:1 roll → angle mapping) */
 #define TILT_THRUST_DEAD   3.0f    // pitch dead-zone (degrees) before thrust starts
@@ -64,7 +66,7 @@
 #define LAND_PULSE_OFF     0.08f   // sec gap between pulses
 #define LAND_PULSE_COUNT   3       // number of pulses
 
-/* ----- RNG (xorshift32, seeded from level) ------------------------------- */
+/* ----- 'RNG' (xorshift32, seeded from level) ------------------------------- */
 
 static uint32_t game_rand(GameState* g) {
     uint32_t x = g->rng_state;
@@ -633,7 +635,7 @@ static bool lander_over_pad(const GameState* g, int i) {
     int lander_h = (int)(LANDER_FOOT_DY - LANDER_BODY_TOP) + 1;   // 7 rows
     int zone_x0  = g->pad_x[i];
     int zone_x1  = g->pad_x[i] + g->pad_w[i];
-    int zone_y0  = pad_y - (lander_h + 1);
+    int zone_y0  = pad_y - MULTIPLIER_DISAPPEARING_HEIGHT;
     int left     = (int)floorf(g->x - LANDER_FOOT_DX);
     int right    = (int)floorf(g->x + LANDER_FOOT_DX);
     int top      = (int)floorf(g->y + LANDER_BODY_TOP);
