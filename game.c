@@ -36,13 +36,9 @@
 #define ROT_RATE           1.8f    // radians/sec while Left/Right held
 #define WRAP_X             1       // wrap horizontally (classic)
 
-#define SAFE_VY            8.0f
-#define SAFE_VX            4.0f
-#define SAFE_ANGLE         0.22f   // ~12.6 degrees
+/* Safe-landing thresholds come from the Difficulty — see apply_difficulty(). */
 
-/* VGM tilt control parameters */
-#define TILT_STEER_DEAD    5.0f    // roll dead-zone (degrees) before steering starts
-#define TILT_STEER_MAX    45.0f    // roll degrees that yield full ROT_RATE
+/* VGM tilt control parameters (steering is a 1:1 roll → angle mapping) */
 #define TILT_THRUST_DEAD   3.0f    // pitch dead-zone (degrees) before thrust starts
 #define TILT_THRUST_MAX   35.0f    // pitch degrees that yield 100% thrust
 
@@ -196,7 +192,7 @@ static void pads_place(GameState* g) {
         g->pad_mul[i] = mul;
     }
 
-    /* Shrink high-multiplier pads to match their difficulty: 3×→12px, 5×→8px.
+    /* Shrink high-multiplier pads to match their difficulty: 3×→13px, 5×→10px.
      * Terrain was already flattened for PAD_W; the extra flat shelf around the
      * active zone is intentional — it makes the narrowing visible. */
     for (int i = 0; i < g->num_pads; i++) {
@@ -511,12 +507,8 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
         if (g->x >= SCREEN_W) { g->x = SCREEN_W - 1; g->vx = 0.0f; }
     }
 
-    /* Out-of-fuel doesn't immediately end the game (you can still glide), but
-     * if you've also got no upward chance, we'll let collision handle it. */
-    if (g->fuel <= 0.0f && g->vy > 0.0f && g->y > SCREEN_H - 20) {
-        /* Soft signal — let the crash detection determine outcome; this flag
-         * is unused for now. */
-    }
+    /* Out-of-fuel doesn't end the game by itself: you glide until the
+     * collision check decides the outcome. */
 
     /* Collision with terrain or ceiling */
     if (g->y < CEILING_Y) { g->y = CEILING_Y; if (g->vy < 0.0f) g->vy = 0.0f; }
@@ -567,12 +559,31 @@ static void draw_degree_sym(Canvas* canvas, int x, int y) {
 }
 
 static void draw_terrain(Canvas* canvas, const GameState* g) {
-    /* Solid fill: each column is a vertical bar from the terrain surface
-     * down to the screen bottom.  The top pixel of each bar is exactly
-     * terrain[x], so what despike wrote is exactly what's drawn — no
-     * Bresenham smear from neighbours. */
+    /* Solid fill: each column is a bar from the terrain surface down to the
+     * screen bottom.  The top pixel of each bar is exactly terrain[x], so
+     * what despike wrote is exactly what's drawn — no Bresenham smear from
+     * neighbours.
+     *
+     * Painted as horizontal runs, one row at a time, rather than one
+     * vertical canvas_draw_line per column: u8g2 plots a line pixel by
+     * pixel through four calls (~110 instructions each), and this fill is
+     * ~2,300 pixels every frame. A 1-px-tall box is one tight loop
+     * (~8 instructions per pixel). Same pixels either way. */
+    int top = SCREEN_H;
     for (int x = 0; x < SCREEN_W; x++) {
-        canvas_draw_line(canvas, x, (int)g->terrain[x], x, SCREEN_H - 1);
+        if (g->terrain[x] < top) top = g->terrain[x];
+    }
+    for (int y = top; y < SCREEN_H; y++) {
+        int x = 0;
+        while (x < SCREEN_W) {
+            if (g->terrain[x] > y) {
+                x++;
+                continue;
+            }
+            int x0 = x;
+            while (x < SCREEN_W && g->terrain[x] <= y) x++;
+            canvas_draw_box(canvas, x0, y, x - x0, 1);
+        }
     }
     /* Pads: multiplier label drawn UNDER the pad (inside the solid fill)
      * using ColorWhite so it shows as bright text on dark ground.
@@ -666,11 +677,15 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
     canvas_draw_str_aligned(canvas, SCREEN_W, 16, AlignRight, AlignTop, buf);
 }
 
-static void draw_status_banner(Canvas* canvas, const GameState* g) {
-    if (g->status == GameStatusFlying) return;
+bool game_banner_visible(const GameState* g) {
+    if (g->status == GameStatusFlying) return false;
     /* Hold off the banner while the crash flash is still going. */
-    if ((g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) &&
-        g->status_time < FLASH_DURATION) return;
+    return !((g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) &&
+             g->status_time < FLASH_DURATION);
+}
+
+static void draw_status_banner(Canvas* canvas, const GameState* g) {
+    if (!game_banner_visible(g)) return;
 
     const char* line1 = "";
     const char* line2 = "";
@@ -854,10 +869,7 @@ void game_draw(Canvas* canvas, const GameState* g) {
     if(!g->hud_hidden) draw_hud(canvas, g);
 
     /* Dim the whole frame when the status banner is up. */
-    bool banner_visible = (g->status != GameStatusFlying) &&
-        !((g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) &&
-          g->status_time < FLASH_DURATION);
-    if(banner_visible) draw_dim_overlay(canvas);
+    if(game_banner_visible(g)) draw_dim_overlay(canvas);
 
     if(g->vgm_missing) {
         canvas_set_font(canvas, FontSecondary);

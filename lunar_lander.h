@@ -66,10 +66,11 @@ typedef enum {
 } SoundLevel;
 
 typedef enum {
+    /* Every buzz (thrust, taps, crash, landing) is software-PWM'd per tick. */
     VibrationOff = 0,
-    VibrationLow,   // landing celebration only
-    VibrationMed,   // landing + crash/tap SFX
-    VibrationHigh,  // landing + SFX + continuous thrust
+    VibrationLow,   // motor on 1 tick in 4
+    VibrationMed,   // motor on 1 tick in 2
+    VibrationHigh,  // motor on continuously
     VibrationCount,
 } VibrationLevel;
 
