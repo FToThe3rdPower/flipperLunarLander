@@ -1,11 +1,10 @@
 /*
  * Lunar Lander for Flipper Zero - main / dispatch
- * v0.2
  *
  * Event-driven main loop: input + tick events are pushed into a single queue.
  * 60 Hz tick timer drives game physics; menu is event-driven only.
- * All model state lives under a mutex; the draw callback uses try-lock so it
- * never blocks the GUI thread.
+ * All model state lives under a mutex; the draw callback waits at most 25 ms
+ * for it so it never stalls the GUI thread for long.
  */
 
 #include <furi.h>
@@ -15,6 +14,7 @@
 #include <storage/storage.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define HIGH_SCORE_PATH EXT_PATH("apps_data/lunar_lander/score.bin")
 #define SETTINGS_PATH   EXT_PATH("apps_data/lunar_lander/lunarLanderSettings.bin")
@@ -42,7 +42,7 @@ typedef struct {
     bool should_exit;
     MenuState menu;
     GameState game;
-    int settings_focus;   // 0 = sound row, 1 = vibration row; reset on entering ScreenSettings
+    int settings_focus;   // 0 sound, 1 vibration, 2 difficulty, 3 debug HUD; reset on entering ScreenSettings
     VgmTilt* vgm;         // non-NULL while a VGM tilt mode is active
     int  tutorial_level;          // 1 or 2 (valid when screen == ScreenTutorial)
     bool tutorial_popup_showing;  // physics paused; waiting for OK to dismiss
@@ -55,8 +55,9 @@ typedef struct {
     uint32_t debug_free_heap;
     uint8_t  debug_queue_depth;
     uint8_t  debug_peak_queue;
-    /* Longest game_draw and longest gap between processed ticks: the _max
-     * fields collect the current ~1 s window, the others show the last one. */
+    /* Longest in-game draw callback and longest gap between processed ticks:
+     * the _max fields collect the current 1 s window, the others show the
+     * last one. */
     uint32_t debug_draw_us;
     uint32_t debug_draw_us_max;
     uint32_t debug_gap_ms;
@@ -81,7 +82,8 @@ static void high_score_load(int* hs) {
     File* file = storage_file_alloc(storage);
     *hs = 0;
     if(storage_file_open(file, HIGH_SCORE_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
-        storage_file_read(file, hs, sizeof(int));
+        /* A short or damaged file reads as no score rather than garbage. */
+        if(storage_file_read(file, hs, sizeof(int)) != sizeof(int) || *hs < 0) *hs = 0;
         storage_file_close(file);
     }
     storage_file_free(file);
@@ -109,7 +111,7 @@ typedef struct {
     uint8_t difficulty;
     uint8_t sound_level;
     uint8_t vibration_level;
-    bool    debug_hud;
+    uint8_t debug_hud;    // 0/1; uint8_t so a damaged byte can't become an invalid bool
 } SavedSettings;
 
 static void settings_load(AppModel* m) {
@@ -117,14 +119,19 @@ static void settings_load(AppModel* m) {
     File* file = storage_file_alloc(storage);
     if(storage_file_open(file, SETTINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
         SavedSettings s;
+        /* Every value indexes a label/volume table, so a damaged file must
+         * not get through: out-of-range values keep the defaults. */
         if(storage_file_read(file, &s, sizeof(s)) == sizeof(s) &&
-           s.version == SETTINGS_VERSION) {
+           s.version == SETTINGS_VERSION &&
+           s.thrust_mode < ThrustModeCount && s.fuel_mode < FuelModeCount &&
+           s.difficulty < DifficultyCount && s.sound_level < SoundCount &&
+           s.vibration_level < VibrationCount) {
             m->menu.thrust_mode  = (ThrustMode)s.thrust_mode;
             m->menu.fuel_mode    = (FuelMode)s.fuel_mode;
             m->menu.difficulty   = (Difficulty)s.difficulty;
             m->menu.sound_level     = (SoundLevel)s.sound_level;
             m->menu.vibration_level = (VibrationLevel)s.vibration_level;
-            m->debug_hud         = s.debug_hud;
+            m->debug_hud         = s.debug_hud != 0;
         }
         storage_file_close(file);
     }
@@ -182,7 +189,7 @@ static void draw_debug_overlay(Canvas* canvas, const AppModel* m) {
              (unsigned long)m->debug_gap_ms);
     canvas_draw_str(canvas, 0, 15, buf);
 
-    /* Row 2: angle + velocities, or a NaN/runaway warning */
+    /* Row 2: angle, velocities and speed, or a NaN/runaway warning */
     bool bad_a = (g->angle != g->angle) || (g->angle > 1e6f) || (g->angle < -1e6f);
     bool bad_v = (g->vx != g->vx) || (g->vy != g->vy)
               || (g->vx > 1e6f) || (g->vx < -1e6f)
@@ -192,46 +199,48 @@ static void draw_debug_overlay(Canvas* canvas, const AppModel* m) {
                  bad_a ? " ANG" : "", bad_v ? " VEL" : "");
     } else {
         int deg = (int)(g->angle * (180.0f / 3.14159265f));
-        snprintf(buf, sizeof(buf), "A:%+d X:%+d Y:%+d", deg, (int)g->vx, (int)g->vy);
+        int speed = (int)sqrtf(g->vx * g->vx + g->vy * g->vy);
+        snprintf(buf, sizeof(buf), "A:%+d X:%+d Y:%+d S:%d",
+                 deg, (int)g->vx, (int)g->vy, speed);
     }
     canvas_draw_str(canvas, 0, 23, buf);
-}
-
-/* game_draw, keeping the longest draw time of the current debug window.
- * The cortex timer's .start is a snapshot of the CPU cycle counter. */
-static void draw_game_timed(Canvas* canvas, AppModel* m) {
-    uint32_t start = furi_hal_cortex_timer_get(0).start;
-    game_draw(canvas, &m->game);
-    uint32_t us = (furi_hal_cortex_timer_get(0).start - start) /
-                  furi_hal_cortex_instructions_per_microsecond();
-    if(us > m->debug_draw_us_max) m->debug_draw_us_max = us;
 }
 
 static void draw_callback(Canvas* canvas, void* ctx) {
     App* app = ctx;
     if (furi_mutex_acquire(app->mutex, 25) != FuriStatusOk) return;
+    /* Times the in-game draw for the debug HUD's DR — i.e. how long the
+     * mutex is held. The cortex timer's .start is the CPU cycle counter. */
+    uint32_t draw_start = furi_hal_cortex_timer_get(0).start;
 
     canvas_clear(canvas);
     switch (app->model.screen) {
         case ScreenMenu:
             menu_draw(canvas, &app->model.menu);
             break;
-        case ScreenGame:
-            app->model.game.hud_hidden = app->model.debug_hud;
-            draw_game_timed(canvas, &app->model);
-            if(app->model.debug_hud) draw_debug_overlay(canvas, &app->model);
+        case ScreenGame: {
+            /* The debug overlay replaces the HUD, except while the
+             * landed/crashed banner is up: it would be drawn over it. */
+            bool overlay = app->model.debug_hud && !game_banner_visible(&app->model.game);
+            app->model.game.hud_hidden = overlay;
+            game_draw(canvas, &app->model.game);
+            if(overlay) draw_debug_overlay(canvas, &app->model);
             break;
-        case ScreenTutorial:
-            app->model.game.hud_hidden = app->model.debug_hud;
-            draw_game_timed(canvas, &app->model);
+        }
+        case ScreenTutorial: {
+            bool overlay = app->model.debug_hud && !app->model.tutorial_popup_showing &&
+                           !game_banner_visible(&app->model.game);
+            app->model.game.hud_hidden = overlay;
+            game_draw(canvas, &app->model.game);
             if(app->model.tutorial_popup_showing) {
                 game_draw_tutorial_popup(canvas,
                                          app->model.tutorial_level,
                                          app->model.menu.thrust_mode,
                                          &app->model.game);
             }
-            if(app->model.debug_hud) draw_debug_overlay(canvas, &app->model);
+            if(overlay) draw_debug_overlay(canvas, &app->model);
             break;
+        }
         case ScreenInfo: {
             canvas_set_font(canvas, FontPrimary);
             canvas_draw_str_aligned(
@@ -316,6 +325,11 @@ static void draw_callback(Canvas* canvas, void* ctx) {
         }
     }
 
+    if(app->model.screen == ScreenGame || app->model.screen == ScreenTutorial) {
+        uint32_t us = (furi_hal_cortex_timer_get(0).start - draw_start) /
+                      furi_hal_cortex_instructions_per_microsecond();
+        if(us > app->model.debug_draw_us_max) app->model.debug_draw_us_max = us;
+    }
     furi_mutex_release(app->mutex);
 }
 
@@ -439,7 +453,10 @@ static void handle_input_event(App* app, const InputEvent* ev) {
             break;
         }
         case ScreenTutorial: {
-            if((m->menu.thrust_mode == ThrustModeTapImpulse ||
+            /* No bursts while a popup is up: physics is paused, so a tap
+             * would only burn fuel and launch the lander once it closes. */
+            if(!m->tutorial_popup_showing &&
+               (m->menu.thrust_mode == ThrustModeTapImpulse ||
                 m->menu.thrust_mode == ThrustModeVidyaTap) &&
                ev->key == InputKeyUp && ev->type == InputTypePress) {
                 game_apply_tap_impulse(&m->game);
@@ -472,6 +489,10 @@ static void handle_input_event(App* app, const InputEvent* ev) {
         }
         case ScreenSettings: {
             if (ev->type != InputTypeShort && ev->type != InputTypeRepeat) break;
+            SoundLevel     prev_sound = m->menu.sound_level;
+            VibrationLevel prev_vibro = m->menu.vibration_level;
+            Difficulty     prev_diff  = m->menu.difficulty;
+            bool           prev_debug = m->debug_hud;
             switch (ev->key) {
                 case InputKeyUp:
                     if (m->settings_focus > 0) m->settings_focus--;
@@ -513,7 +534,11 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                 default:
                     break;
             }
-            settings_save(&app->model);
+            /* Only touch the SD card when a value actually changed. */
+            if(m->menu.sound_level != prev_sound || m->menu.vibration_level != prev_vibro ||
+               m->menu.difficulty != prev_diff || m->debug_hud != prev_debug) {
+                settings_save(&app->model);
+            }
             break;
         }
         case ScreenInfo:
@@ -535,6 +560,9 @@ static void handle_input_event(App* app, const InputEvent* ev) {
 static void handle_tick(App* app, float dt) {
     if(app->model.screen == ScreenGame || app->model.screen == ScreenTutorial) {
         AppModel* m = &app->model;
+        /* Kept up to date here because game_init's memset clears it on
+         * every retry and level change. */
+        m->game.vgm_missing = m->vgm && !vgm_tilt_present(m->vgm);
         if(m->tutorial_popup_showing) return;
         if(m->vgm && vgm_tilt_present(m->vgm)) {
             m->game.tilt_pitch = vgm_tilt_roll(m->vgm);
@@ -556,12 +584,6 @@ static void handle_tick(App* app, float dt) {
         if((uint8_t)qd > m->debug_peak_queue) m->debug_peak_queue = (uint8_t)qd;
         m->debug_queue_depth = (uint8_t)(qd < 255 ? qd : 255);
         m->debug_free_heap   = (uint32_t)memmgr_get_free_heap();
-        if(m->debug_tick_count % 60 == 0) {
-            m->debug_draw_us     = m->debug_draw_us_max;
-            m->debug_gap_ms      = m->debug_gap_ms_max;
-            m->debug_draw_us_max = 0;
-            m->debug_gap_ms_max  = 0;
-        }
         if(m->debug_hud && (m->debug_tick_count % 10 == 0)) {
             int deg = (int)(m->game.angle * (180.0f / 3.14159265f));
             FURI_LOG_I("LunarDbg", "HP:%lu TK:%lu Q:%u DR:%luus TG:%lums A:%d X:%d Y:%d",
@@ -606,16 +628,28 @@ int32_t lunar_lander_app(void* p) {
     while (!app->model.should_exit) {
         AppEvent ev;
         if (furi_message_queue_get(app->queue, &ev, FuriWaitForever) != FuriStatusOk) continue;
+        /* Out of the queue, so let the timer post the next tick, even if we
+         * now wait for the mutex while a frame draws. */
+        if (ev.type == AppEventTick) app->tick_pending = false;
 
         furi_mutex_acquire(app->mutex, FuriWaitForever);
 
         if (ev.type == AppEventInput) {
             handle_input_event(app, &ev.input);
         } else { // AppEventTick
-            app->tick_pending = false;
             uint32_t now = furi_get_tick();
             uint32_t gap_ms = (now - app->last_tick_ms) * 1000 / tick_freq;
-            if (gap_ms > app->model.debug_gap_ms_max) app->model.debug_gap_ms_max = gap_ms;
+            AppModel* m = &app->model;
+            if (gap_ms > m->debug_gap_ms_max) m->debug_gap_ms_max = gap_ms;
+            /* Roll the debug window over each wall-clock second. Done here
+             * rather than in handle_tick so it also runs while the tutorial
+             * popup pauses the game. */
+            if (now / tick_freq != app->last_tick_ms / tick_freq) {
+                m->debug_draw_us     = m->debug_draw_us_max;
+                m->debug_gap_ms      = m->debug_gap_ms_max;
+                m->debug_draw_us_max = 0;
+                m->debug_gap_ms_max  = 0;
+            }
             float dt = (float)(now - app->last_tick_ms) / (float)tick_freq;
             app->last_tick_ms = now;
             /* Guard against giant dt after a stall. */

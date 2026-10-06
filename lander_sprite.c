@@ -45,6 +45,10 @@ void lander_draw_static(Canvas* canvas, int cx, int cy) {
 static void draw_line_clipped(Canvas* canvas, int x1, int y1, int x2, int y2) {
     const int w = (int)canvas_width(canvas);
     const int h = (int)canvas_height(canvas);
+    /* Entirely off one side: nothing to plot. Also keeps the walk short if
+     * a runaway position ever saturates both ends to INT_MAX. */
+    if ((x1 < 0 && x2 < 0) || (x1 >= w && x2 >= w) ||
+        (y1 < 0 && y2 < 0) || (y1 >= h && y2 >= h)) return;
     bool steep = abs(y2 - y1) > abs(x2 - x1);
     int t;
     if (steep) {
@@ -75,8 +79,11 @@ void lander_draw_rotated(Canvas* canvas, float cx, float cy, float angle, float 
     float s = sinf(angle);
     float c = cosf(angle);
 
-#define RX(lx, ly) ((int)(cx + (lx) * c - (ly) * s))
-#define RY(lx, ly) ((int)(cy + (lx) * s + (ly) * c))
+/* floorf, not a plain (int) cast: truncation sends -0.5 to 0, which squashes
+ * the sprite by a pixel as it crosses the left/top edge. Same result for
+ * every on-screen (non-negative) coordinate. */
+#define RX(lx, ly) ((int)floorf(cx + (lx) * c - (ly) * s))
+#define RY(lx, ly) ((int)floorf(cy + (lx) * s + (ly) * c))
 
     /* Body outline — four segments forming the rounded rectangle */
     draw_line_clipped(canvas, RX(-1, -3), RY(-1, -3), RX(+1, -3), RY(+1, -3));   // top

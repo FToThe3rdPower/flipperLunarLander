@@ -88,7 +88,7 @@ static void draw_wrench_icon(Canvas* canvas, int cx, int cy) {
     canvas_draw_line(canvas, cx+3, cy + 3,  cx + 4, cy + 3);
 }
 
-/* Title bar layout — three equal 24/80/24 zones across 128px:
+/* Title bar layout — three zones (22/84/22 px) across 128px:
  *   [ sprite  0..21 ] [ "LUNAR LANDER"  22..105 ] [ wrench  106..127 ]
  *   → score            → about                      → settings
  *   Icon centers: x=12, x=64, x=116 (52px apart each).

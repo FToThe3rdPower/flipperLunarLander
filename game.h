@@ -21,7 +21,7 @@ typedef enum {
 
 typedef struct {
     /* Progress */
-    int level;            // 1..10
+    int level;            // 1..HIGHEST_LEVEL (30); tutorial uses 1..2
     int score;
     float elapsed;        // seconds since level start
 
@@ -29,7 +29,7 @@ typedef struct {
     float x, y;           // pixel coords, y+ = down
     float vx, vy;         // pixels/sec
     float angle;          // radians, 0 = up; +ve = clockwise
-    float fuel;           // 0..100
+    float fuel;           // 0..starting fuel (100, or 200-500 in no-refuel modes)
 
     /* Input state */
     bool left_held;
@@ -101,6 +101,8 @@ void game_init_tutorial(GameState* g, int tut_level, int score, Difficulty diffi
 GameAction game_input(GameState* g, const InputEvent* ev);
 void game_tick(GameState* g, ThrustMode mode, float dt);
 void game_draw(Canvas* canvas, const GameState* g);
+/* True while the landed/crashed banner is on screen (after the crash flash). */
+bool game_banner_visible(const GameState* g);
 void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_mode, const GameState* g);
 
 /* Audio control. start/stop on entering/leaving the game screen; update once
