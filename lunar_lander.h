@@ -45,6 +45,7 @@ typedef enum {
     ScreenSettings,
     ScreenGameComplete,
     ScreenScore,
+    ScreenCustomDifficulty,
 } Screen;
 
 typedef enum {
@@ -52,10 +53,16 @@ typedef enum {
     DifficultyMedium,    // baseline (original values)
     DifficultyHard,      // safe thresholds halved
     DifficultyRealistic, // Vy<1, Vx<1, angle<3°
+    DifficultyCustom,    // player-set limits, never looser than Easy
     DifficultyCount,
 } Difficulty;
 
 extern const char* const difficulty_label[DifficultyCount];
+
+/* Custom difficulty ranges: 1 up to Easy's limits. */
+#define CUSTOM_VX_MAX     8
+#define CUSTOM_VY_MAX     16
+#define CUSTOM_ANGLE_MAX  25   // degrees
 
 typedef enum {
     SoundOff = 0,

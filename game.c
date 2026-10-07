@@ -15,51 +15,58 @@
  * collision math below uses LANDER_FOOT_DX / LANDER_FOOT_DY from that
  * header. */
 
-#define PAD_W              16      // 2x lander total width
-#define CEILING_Y          (-10.0f) // play area extends 10px above screen so lander fully disappears
-#define TERRAIN_TOP_Y      26      // highest peak (smallest y) after normalization
-#define TERRAIN_BOT_Y      (SCREEN_H - 1)  // deepest valley = bottom row of screen
-#define DESPIKE_HEIGHT     5       // a column must be this many px above BOTH x±2 neighbours to be a spike
+#define PAD_W                          16      // 2x lander total width
+#define CEILING_Y                      (-10.0f) // play area extends 10px above screen so lander fully disappears
+#define TERRAIN_TOP_Y                  26      // highest peak (smallest y) after normalization
+#define TERRAIN_BOT_Y                  (SCREEN_H - 1) // deepest valley = bottom row of screen
+#define DESPIKE_HEIGHT                 5       // a column must be this many px above BOTH x±2 neighbours to be a spike
 
-#define HIGHEST_LEVEL      30      // bump this when adding levels; scoring depends on it
-/* Distance thresholds (from spawn center) for multiplier tiers 1x/2x/3x/5x */
-#define MUL_1X_THRESH      8              // basically right below spawn
-#define MUL_2X_THRESH      (SCREEN_W / 5) // ~25 px
-#define MUL_3X_THRESH      (SCREEN_W / 3) // ~42 px — beyond this → 5x
+/* Scoring */
+#define HIGHEST_LEVEL                  30      // bump this when adding levels; scoring depends on it
+// Distance thresholds (from spawn center) for multiplier tiers 1x/2x/3x/5x
+#define MUL_1X_THRESH                  8       // basically right below spawn
+#define MUL_2X_THRESH                  (SCREEN_W / 5) // ~25 px
+#define MUL_3X_THRESH                  (SCREEN_W / 3) // ~42 px — beyond this → 5x
+#define MULTIPLIER_DISAPPEARING_HEIGHT 11      // rows above a pad where the lander hides that pad's above-pad label
 
-#define GRAVITY            6.0f    // pixels/sec^2 downward
-#define THRUST_MAX         18.0f   // pixels/sec^2 along lander up-axis at full thrust
-#define IMPULSE_DV         5.0f    // velocity change per tap (TapImpulse mode)
-#define IMPULSE_FUEL       2.0f
-#define RAMP_TIME          0.5f    // seconds from 0 -> full thrust in Ramp mode was 0.7
-#define FUEL_BURN_RATE     12.0f   // units/sec at full thrust
-#define ROT_RATE           1.8f    // radians/sec while Left/Right held
-#define WRAP_X             1       // wrap horizontally (classic)
+#define GRAVITY                        6.0f    // pixels/sec^2 downward
+#define THRUST_MAX                     18.0f   // pixels/sec^2 along lander up-axis at full thrust
+#define IMPULSE_DV                     5.0f    // velocity change per tap (TapImpulse mode)
+#define IMPULSE_FUEL                   2.0f
+#define RAMP_TIME                      0.5f    // seconds from 0 -> full thrust in Ramp mode was 0.7
+#define FUEL_BURN_RATE                 12.0f   // units/sec at full thrust
+#define ROT_RATE                       1.8f    // radians/sec while Left/Right held
+#define WRAP_X                         1       // wrap horizontally (classic)
 
-/* Safe-landing thresholds come from the Difficulty — see apply_difficulty(). */
+/* Safe-landing parameters come from the Difficulty — see apply_difficulty(). */
 
 /* VGM tilt control parameters (steering is a 1:1 roll → angle mapping) */
-#define TILT_THRUST_DEAD   3.0f    // pitch dead-zone (degrees) before thrust starts
-#define TILT_THRUST_MAX   35.0f    // pitch degrees that yield 100% thrust
+#define TILT_THRUST_DEAD               3.0f    // pitch dead-zone (degrees) before thrust starts
+#define TILT_THRUST_MAX                35.0f   // pitch degrees that yield 100% thrust
 
-#define START_FUEL         100.0f
+/* Back while flying: tap = re-zero tilt, hold = back to the menu */
+#define BACK_HOLD_EXIT                 1.0f    // sec of holding Back to leave mid-flight
+#define BACK_HOLD_SHOW                 0.3f    // sec before the hold-to-exit box shows (taps never do)
+#define TOAST_TIME                     0.5f    // sec a toast ("Tilt zeroed") stays up
+
+#define START_FUEL                     100.0f
 
 /* ----- Audio / feedback tunables ----------------------------------------- */
-#define AUDIO_VOLUME       0.5f    // 0.0 to 1.0
-#define THRUST_FREQ_MIN    220      // Hz at near-zero thrust
-#define THRUST_FREQ_MAX    440     // Hz at full thrust
-#define SFX_LAND_FREQ      880     // Hz
-#define SFX_LAND_DUR       0.25f   // sec
-#define SFX_CRASH_FREQ     100      // Hz
-#define SFX_CRASH_DUR      0.50f   // sec
-#define SFX_TAP_FREQ       220     // Hz
-#define SFX_TAP_DUR        0.06f   // sec
-#define FLASH_DURATION     1.6f    // sec - crash inversion flashing
-#define LAND_PULSE_ON      0.08f   // sec each landing vibration pulse is on
-#define LAND_PULSE_OFF     0.08f   // sec gap between pulses
-#define LAND_PULSE_COUNT   3       // number of pulses
+#define AUDIO_VOLUME                   0.5f    // 0.0 to 1.0
+#define THRUST_FREQ_MIN                220     // Hz at near-zero thrust
+#define THRUST_FREQ_MAX                440     // Hz at full thrust
+#define SFX_LAND_FREQ                  880     // Hz
+#define SFX_LAND_DUR                   0.25f   // sec
+#define SFX_CRASH_FREQ                 100     // Hz
+#define SFX_CRASH_DUR                  0.50f   // sec
+#define SFX_TAP_FREQ                   220     // Hz
+#define SFX_TAP_DUR                    0.06f   // sec
+#define FLASH_DURATION                 1.6f    // sec - crash inversion flashing
+#define LAND_PULSE_ON                  0.08f   // sec each landing vibration pulse is on
+#define LAND_PULSE_OFF                 0.08f   // sec gap between pulses
+#define LAND_PULSE_COUNT               3       // number of pulses
 
-/* ----- RNG (xorshift32, seeded from level) ------------------------------- */
+/* ----- 'RNG' (xorshift32, seeded from level) ------------------------------- */
 
 static uint32_t game_rand(GameState* g) {
     uint32_t x = g->rng_state;
@@ -151,7 +158,9 @@ static void pads_place(GameState* g) {
     g->num_pads = (uint8_t)game_pads_for_level(g->level);
 
     /* Divide the playable strip into num_pads regions and place one pad per
-     * region with random horizontal jitter. Guarantees no overlap. */
+     * region with random horizontal jitter. Guarantees no overlap — regions
+     * are sized for the widest (PAD_W) pad, so narrower ones below only add
+     * slack. */
     int margin = 6;
     int usable = SCREEN_W - 2 * margin;
     int region_w = usable / g->num_pads;
@@ -163,23 +172,14 @@ static void pads_place(GameState* g) {
         int px = region_start + offset;
         if (px < 0) px = 0;
         if (px + PAD_W > SCREEN_W) px = SCREEN_W - PAD_W;
-
-        /* Flatten terrain across the pad. Use the lowest (largest-y) value
-         * under the pad span so the pad sits flush with surrounding ground. */
-        int flat_y = g->terrain[px];
-        for (int dx = 1; dx < PAD_W; dx++) {
-            int t = g->terrain[px + dx];
-            if (t > flat_y) flat_y = t;
-        }
-        for (int dx = 0; dx < PAD_W; dx++) {
-            g->terrain[px + dx] = (uint8_t)flat_y;
-        }
         g->pad_x[i] = (uint8_t)px;
-        g->pad_w[i] = PAD_W;
+        g->pad_w[i] = PAD_W;   // narrowed below, before anything is flattened
     }
 
     /* Assign multipliers based on distance of each pad's center from the
-     * lander spawn (screen center). Farther = higher reward. */
+     * lander spawn (screen center), then shrink high-multiplier pads to
+     * match: 3×→13px, 5×→10px. Multiplier depends only on the center, which
+     * narrowing doesn't move, so this can run in one pass per pad. */
     int spawn_cx = SCREEN_W / 2;
     for (int i = 0; i < g->num_pads; i++) {
         int pad_cx = g->pad_x[i] + PAD_W / 2;
@@ -190,30 +190,77 @@ static void pads_place(GameState* g) {
         else if (dist <= MUL_3X_THRESH) mul = 3;
         else                            mul = 5;
         g->pad_mul[i] = mul;
+
+        int new_w = PAD_W;
+        if      (mul == 5) new_w = 10;
+        else if (mul == 3) new_w = 13;
+        if (new_w < PAD_W) {
+            g->pad_x[i] = (uint8_t)(pad_cx - new_w / 2);
+            g->pad_w[i] = (uint8_t)new_w;
+        }
     }
 
-    /* Shrink high-multiplier pads to match their difficulty: 3×→13px, 5×→10px.
-     * Terrain was already flattened for PAD_W; the extra flat shelf around the
-     * active zone is intentional — it makes the narrowing visible. */
+    /* Flatten exactly each pad's final width — never wider. A flat spot in
+     * the terrain means "this is a pad" and nothing else, so the ground
+     * itself marks the pad; no separate on-screen marker is needed. Use the
+     * lowest (largest-y) value under the span so the pad sits flush with
+     * the surrounding ground. */
     for (int i = 0; i < g->num_pads; i++) {
-        int new_w = PAD_W;
-        if      (g->pad_mul[i] == 5) new_w = 10;
-        else if (g->pad_mul[i] == 3) new_w = 13;
-        if (new_w < PAD_W) {
-            int cx = (int)g->pad_x[i] + PAD_W / 2;
-            g->pad_x[i] = (uint8_t)(cx - new_w / 2);
-            g->pad_w[i] = (uint8_t)new_w;
+        int px = g->pad_x[i];
+        int pw = g->pad_w[i];
+        int flat_y = g->terrain[px];
+        for (int dx = 1; dx < pw; dx++) {
+            int t = g->terrain[px + dx];
+            if (t > flat_y) flat_y = t;
+        }
+        for (int dx = 0; dx < pw; dx++) {
+            g->terrain[px + dx] = (uint8_t)flat_y;
+        }
+    }
+}
+
+/* Flat ground should always mean "pad". Natural terrain right beside a pad
+ * sometimes sits at the pad's height, which reads as a wider pad than the
+ * one that counts; raise those edge columns 1 px so every pad ends in a
+ * visible step. Runs after the last despike, which could level a column. */
+static void pads_mark_edges(GameState* g) {
+    for (int i = 0; i < g->num_pads; i++) {
+        int px = g->pad_x[i];
+        int pw = g->pad_w[i];
+        int y  = g->terrain[px];
+        int edges[2] = {px - 1, px + pw};
+        for (int e = 0; e < 2; e++) {
+            int x = edges[e];
+            if (x < 0 || x >= SCREEN_W || g->terrain[x] != y) continue;
+            bool in_pad = false;
+            for (int j = 0; j < g->num_pads; j++) {
+                if (x >= g->pad_x[j] && x < g->pad_x[j] + g->pad_w[j]) in_pad = true;
+            }
+            if (!in_pad) g->terrain[x] = (uint8_t)(y - 1);
         }
     }
 }
 
 /* ----- Init -------------------------------------------------------------- */
 
+/* DifficultyCustom limits, set from Settings via game_set_custom_limits().
+ * Defaults match Easy. */
+static float custom_vx    = 8.0f;
+static float custom_vy    = 16.0f;
+static float custom_angle = 0.44f;   // radians
+
+void game_set_custom_limits(int vx, int vy, int angle_deg) {
+    custom_vx    = (float)vx;
+    custom_vy    = (float)vy;
+    custom_angle = (float)angle_deg * (3.14159265f / 180.0f);
+}
+
 static void apply_difficulty(GameState* g, Difficulty d) {
     switch(d) {
         case DifficultyEasy:       g->safe_vy = 16.0f; g->safe_vx = 8.0f; g->safe_angle = 0.44f;  break;
         case DifficultyHard:       g->safe_vy =  4.0f; g->safe_vx = 2.0f; g->safe_angle = 0.11f;  break;
         case DifficultyRealistic:  g->safe_vy =  1.0f; g->safe_vx = 1.0f; g->safe_angle = 0.052f; break;
+        case DifficultyCustom:     g->safe_vy = custom_vy; g->safe_vx = custom_vx; g->safe_angle = custom_angle; break;
         default: /* Medium */      g->safe_vy =  8.0f; g->safe_vx = 4.0f; g->safe_angle = 0.22f;  break;
     }
 }
@@ -231,6 +278,7 @@ void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int start
     terrain_despike(g);
     pads_place(g);
     terrain_despike(g); // second pass: catches edge spikes introduced at pad boundaries
+    pads_mark_edges(g);
 
     g->x = (float)SCREEN_W / 2.0f;
     g->y = 6.0f;
@@ -304,11 +352,42 @@ void game_init_tutorial(GameState* g, int tut_level, int score, Difficulty diffi
 
 /* ----- Input ------------------------------------------------------------- */
 
-GameAction game_input(GameState* g, const InputEvent* ev) {
-    /* Back from a status screen, or from flying, returns to menu. */
-    if (ev->key == InputKeyBack &&
-        (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
-        return GameActionExitToMenu;
+static bool mode_uses_tilt(ThrustMode m) {
+    return m == ThrustModeVidyaTap || m == ThrustModeVidyaBinary ||
+           m == ThrustModeVidyaRamp || m == ThrustModeVidyaFull;
+}
+
+static void show_toast(GameState* g, const char* msg) {
+    g->toast = msg;
+    g->toast_time = TOAST_TIME;
+}
+
+GameAction game_input(GameState* g, const InputEvent* ev, ThrustMode thrust_mode) {
+    if (ev->key == InputKeyBack) {
+        if (g->status == GameStatusFlying) {
+            /* Mid-flight a tap re-zeroes tilt steering (the VGM's zero drifts),
+             * and leaving takes a BACK_HOLD_EXIT hold, timed in game_tick, so
+             * a tap can't end the run by accident. */
+            if (ev->type == InputTypePress) {
+                g->back_held = true;
+                g->back_hold_time = 0.0f;
+            } else if (ev->type == InputTypeRelease) {
+                g->back_held = false;
+            } else if (ev->type == InputTypeShort) {
+                if (mode_uses_tilt(thrust_mode)) {
+                    g->tilt_roll_offset = g->tilt_roll;
+                    show_toast(g, "Tilt zeroed");
+                } else {
+                    show_toast(g, "Hold BACK to exit");
+                }
+            }
+            return GameActionNone;
+        }
+        /* From a status banner, Back returns to the menu. */
+        if (ev->type == InputTypeShort || ev->type == InputTypeLong) {
+            return GameActionExitToMenu;
+        }
+        return GameActionNone;
     }
 
     /* Track held state for Left/Right/Up. The Flipper sends Press + Release
@@ -428,6 +507,7 @@ static void check_collision(GameState* g) {
     g->land_vx    = g->vx;
     g->land_vy    = g->vy;
     g->land_angle = g->angle;
+    g->land_off_pad = !on_flat;
     g->vx = g->vy = 0.0f;
 }
 
@@ -446,11 +526,14 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
 
     g->elapsed += dt;
 
+    if (g->toast_time > 0.0f) g->toast_time -= dt;
+    if (g->back_held) {
+        g->back_hold_time += dt;
+        if (g->back_hold_time >= BACK_HOLD_EXIT) g->exit_requested = true;
+    }
+
     /* Rotation — buttons for non-VGM modes; direct angle mapping for VGM modes. */
-    if(mode == ThrustModeVidyaTap    ||
-       mode == ThrustModeVidyaBinary ||
-       mode == ThrustModeVidyaRamp   ||
-       mode == ThrustModeVidyaFull) {
+    if(mode_uses_tilt(mode)) {
         float cal_roll = g->tilt_roll - g->tilt_roll_offset;
         g->angle = -cal_roll * (3.14159265f / 180.0f);
     } else {
@@ -558,42 +641,79 @@ static void draw_degree_sym(Canvas* canvas, int x, int y) {
     canvas_draw_dot(canvas, x+1, y+2);
 }
 
+/* TV mode: the Video Game Module always outputs 4:3 and shows each Flipper
+ * pixel 2 wide by 3 tall, so drawing the playfield at 2/3 height makes it
+ * look right on the TV. Set from Settings via game_set_tv_mode(). */
+#define TV_MODE_SQUISH (2.0f / 3.0f)
+static float y_squish = 1.0f;
+
+void game_set_tv_mode(bool on) {
+    y_squish = on ? TV_MODE_SQUISH : 1.0f;
+}
+
+/* World y (1 px = 1 m) to screen y. TV mode squishes the world toward the
+ * bottom row; physics and collision stay in world units. With TV mode off
+ * this is exactly y. */
+static float screen_y(float y) {
+    return (float)(SCREEN_H - 1) - ((float)(SCREEN_H - 1) - y) * y_squish;
+}
+
+/* True while any pixel of the (upright) lander is inside the box on top of
+ * pad i that is (pad width + 1) columns wide and
+ * MULTIPLIER_DISAPPEARING_HEIGHT rows tall — where a label drawn above the
+ * pad would sit right over the lander as it touches down. */
+static bool lander_over_pad(const GameState* g, int i) {
+    int pad_y    = g->terrain[g->pad_x[i]];
+    int zone_x0  = g->pad_x[i];
+    int zone_x1  = g->pad_x[i] + g->pad_w[i];
+    int zone_y0  = pad_y - MULTIPLIER_DISAPPEARING_HEIGHT;
+    int left     = (int)floorf(g->x - LANDER_FOOT_DX);
+    int right    = (int)floorf(g->x + LANDER_FOOT_DX);
+    int top      = (int)floorf(g->y + LANDER_BODY_TOP);
+    int bottom   = (int)floorf(g->y + LANDER_FOOT_DY);
+    return right >= zone_x0 && left <= zone_x1 && bottom >= zone_y0 && top <= pad_y;
+}
+
 static void draw_terrain(Canvas* canvas, const GameState* g) {
     /* Solid fill: each column is a bar from the terrain surface down to the
-     * screen bottom.  The top pixel of each bar is exactly terrain[x], so
-     * what despike wrote is exactly what's drawn — no Bresenham smear from
-     * neighbours.
+     * screen bottom.  With TV mode off the top pixel of each bar is exactly
+     * terrain[x], so what despike wrote is exactly what's drawn — no
+     * Bresenham smear from neighbours.
      *
      * Painted as horizontal runs, one row at a time, rather than one
      * vertical canvas_draw_line per column: u8g2 plots a line pixel by
      * pixel through four calls (~110 instructions each), and this fill is
      * ~2,300 pixels every frame. A 1-px-tall box is one tight loop
      * (~8 instructions per pixel). Same pixels either way. */
-    int top = SCREEN_H;
+    uint8_t top[SCREEN_W];   // screen row of each column's surface
+    int min_top = SCREEN_H;
     for (int x = 0; x < SCREEN_W; x++) {
-        if (g->terrain[x] < top) top = g->terrain[x];
+        int t = (int)(screen_y((float)g->terrain[x]) + 0.5f);
+        top[x] = (uint8_t)t;
+        if (t < min_top) min_top = t;
     }
-    for (int y = top; y < SCREEN_H; y++) {
+    for (int y = min_top; y < SCREEN_H; y++) {
         int x = 0;
         while (x < SCREEN_W) {
-            if (g->terrain[x] > y) {
+            if (top[x] > y) {
                 x++;
                 continue;
             }
             int x0 = x;
-            while (x < SCREEN_W && g->terrain[x] <= y) x++;
+            while (x < SCREEN_W && top[x] <= y) x++;
             canvas_draw_box(canvas, x0, y, x - x0, 1);
         }
     }
     /* Pads: multiplier label drawn UNDER the pad (inside the solid fill)
      * using ColorWhite so it shows as bright text on dark ground.
      * Falls back to ABOVE the pad (in bright sky, ColorBlack) when there
-     * is no room below. */
+     * is no room below — and then hides while the lander is over the pad,
+     * where it would be in the way. */
     canvas_set_font(canvas, FontSecondary);
     const int label_h = 7;
     for (int i = 0; i < g->num_pads; i++) {
         int px = g->pad_x[i];
-        int py = (int)g->terrain[px];
+        int py = top[px];
         int pw = (int)g->pad_w[i];
 
         char buf[8];
@@ -606,7 +726,7 @@ static void draw_terrain(Canvas* canvas, const GameState* g) {
             canvas_draw_str_aligned(
                 canvas, px + pw / 2, label_top_below, AlignCenter, AlignTop, buf);
             canvas_set_color(canvas, ColorBlack);
-        } else if (label_top_above >= 0) {
+        } else if (label_top_above >= 0 && !lander_over_pad(g, i)) {
             canvas_draw_str_aligned(
                 canvas, px + pw / 2, py - 2, AlignCenter, AlignBottom, buf);
         }
@@ -621,9 +741,10 @@ static void draw_lander(Canvas* canvas, const GameState* g) {
     if (g->fuel > 0.0f && g->status == GameStatusFlying) {
         thrust_for_draw = g->current_thrust;
     }
-    lander_draw_rotated(canvas, g->x, g->y, g->angle, thrust_for_draw);
+    float sy = screen_y(g->y);
+    lander_draw_rotated(canvas, g->x, sy, g->angle, thrust_for_draw, y_squish);
 
-    if(g->y < 0.0f) {
+    if(sy < 0.0f) {
         int ix = clamp_int((int)g->x, 2, SCREEN_W - 3);
         canvas_draw_line(canvas, ix - 2, 0, ix + 2, 0);
         canvas_draw_line(canvas, ix - 1, 1, ix + 1, 1);
@@ -641,7 +762,7 @@ static void draw_hud(Canvas* canvas, const GameState* g) {
      * has fallen below the bottom of the top line of HUD text (~y=7).
      * Body top is at g->y + LANDER_BODY_TOP (=g->y - 3); the +1 margin keeps
      * it from popping in the moment the body grazes the text line. */
-    if(g->y > 11.0f) {
+    if(screen_y(g->y) > 11.0f) {
         snprintf(buf, sizeof(buf), g->is_tutorial ? "T%d" : "L%d", g->level);
         canvas_draw_str_aligned(canvas, SCREEN_W / 2, 0, AlignCenter, AlignTop, buf);
     }
@@ -711,12 +832,15 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
     bool vx_bad     = fabsf(g->land_vx)    >= g->safe_vx;
     bool vy_bad     = fabsf(g->land_vy)    >= g->safe_vy;
     bool angle_bad  = is_crash && fabsf(g->land_angle) >= g->safe_angle;
+    bool pad_bad    = is_crash && g->land_off_pad;
     bool blink_hide = is_crash && (((int)(g->status_time * 3.0f) % 2) == 1);
 
-    /* Banner grows a line when angle also caused the crash. */
+    /* Banner grows a line when the angle, or missing the pad, caused the
+     * crash. Both at once: the angle gets the line. */
+    bool reason_line = angle_bad || pad_bad;
     int bx = 14, bw = SCREEN_W - 28;
-    int by = angle_bad ? 10 : 14;
-    int bh = angle_bad ? 44 : 36;
+    int by = reason_line ? 10 : 14;
+    int bh = reason_line ? 44 : 36;
 
     canvas_set_color(canvas, ColorWhite);
     canvas_draw_box(canvas, bx, by, bw, bh);
@@ -730,7 +854,7 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
     /* Line 2 — velocities; offending values blink on crash */
     char buf[16];
     canvas_set_font(canvas, FontSecondary);
-    int vel_y = by + (angle_bad ? 19 : 20);
+    int vel_y = by + (reason_line ? 19 : 20);
     if(!(vx_bad && blink_hide)) {
         snprintf(buf, sizeof(buf), "Vx:%+d", (int)g->land_vx);
         canvas_draw_str_aligned(canvas, SCREEN_W / 2 - 3, vel_y, AlignRight, AlignCenter, buf);
@@ -740,7 +864,7 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
         canvas_draw_str_aligned(canvas, SCREEN_W / 2 + 3, vel_y, AlignLeft, AlignCenter, buf);
     }
 
-    /* Line 3 — angle, only when it was the cause; blinks too.
+    /* Line 3 — the angle when it was a cause, else "Missed the pad"; blinks.
      * Layout: [θ][:NN][°][R/L] — θ and ° drawn as pixel-art, ASCII measured
      * with canvas_string_width so the whole thing centers correctly. */
     if(angle_bad && !blink_hide) {
@@ -763,10 +887,14 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
         draw_degree_sym(canvas, x, cy - 3);    // superscript: top aligns with text top
         x += 4;
         canvas_draw_str(canvas, x, cy + 3, dir_str);
+    } else if(pad_bad && !blink_hide) {
+        /* Slow and level but off the pad — e.g. on the flat shelf around a
+         * narrowed 3x/5x pad. */
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 29, AlignCenter, AlignCenter, "Missed the pad");
     }
 
     /* Last line — action prompt */
-    int prompt_y = by + (angle_bad ? 39 : 30);
+    int prompt_y = by + (reason_line ? 39 : 30);
     canvas_draw_str_aligned(canvas, SCREEN_W / 2, prompt_y, AlignCenter, AlignCenter, line2);
 }
 
@@ -847,6 +975,34 @@ void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_m
     }
 }
 
+/* Mid-flight messages, in a small white box so they read over terrain: the
+ * hold-to-exit progress while Back is held, otherwise a short toast. Kept
+ * below the HUD rows so the debug overlay doesn't cover them. */
+static void draw_flight_messages(Canvas* canvas, const GameState* g) {
+    canvas_set_font(canvas, FontSecondary);
+    if (g->back_held && g->back_hold_time > BACK_HOLD_SHOW) {
+        const int bw = 72, bh = 18, bx = (SCREEN_W - bw) / 2, by = 26;
+        canvas_set_color(canvas, ColorWhite);
+        canvas_draw_box(canvas, bx, by, bw, bh);
+        canvas_set_color(canvas, ColorBlack);
+        canvas_draw_rframe(canvas, bx, by, bw, bh, 2);
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 6, AlignCenter, AlignCenter, "Hold to exit");
+        float p = g->back_hold_time / BACK_HOLD_EXIT;
+        if (p > 1.0f) p = 1.0f;
+        canvas_draw_frame(canvas, bx + 6, by + 11, bw - 12, 4);
+        canvas_draw_box(canvas, bx + 6, by + 11, (size_t)((bw - 12) * p), 4);
+    } else if (g->toast && g->toast_time > 0.0f) {
+        const int bh = 11, by = 28;
+        int bw = (int)canvas_string_width(canvas, g->toast) + 10;
+        int bx = (SCREEN_W - bw) / 2;
+        canvas_set_color(canvas, ColorWhite);
+        canvas_draw_box(canvas, bx, by, bw, bh);
+        canvas_set_color(canvas, ColorBlack);
+        canvas_draw_rframe(canvas, bx, by, bw, bh, 2);
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 6, AlignCenter, AlignCenter, g->toast);
+    }
+}
+
 void game_draw(Canvas* canvas, const GameState* g) {
     draw_terrain(canvas, g);
     draw_lander(canvas, g);
@@ -867,6 +1023,7 @@ void game_draw(Canvas* canvas, const GameState* g) {
     }
 
     if(!g->hud_hidden) draw_hud(canvas, g);
+    if(g->status == GameStatusFlying) draw_flight_messages(canvas, g);
 
     /* Dim the whole frame when the status banner is up. */
     if(game_banner_visible(g)) draw_dim_overlay(canvas);

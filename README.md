@@ -9,7 +9,7 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [x] Three button thrust modes: Binary (hold UP), Tap Impulse (press UP), Ramp (hold UP, ramps up)
 - [x] Four Video Game Module "vidya" tilt control modes.
 - [x] Fuel campaign modes: Full refuel, or No-refuel (Easy 500 / Med 350 / Hard 200 total)
-- [x] Difficulty selector — scales safe-landing thresholds (Easy / Medium / Hard / Realistic)
+- [x] Difficulty selector — scales safe-landing thresholds (Easy / Medium / Hard / Realistic / Custom)
 - [x] Distance-based pad multipliers: 1× (right below spawn), 2×, 3×, 5× (near edges)
 - [x] Scoring: `fuel × pad_multiplier × (HIGHEST_LEVEL − level + 1)`
 - [x] Level number shown at top center of HUD (L1–L30; T1–T2 during tutorial)
@@ -20,11 +20,14 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [x] 20% dim overlay behind status banners
 - [x] Tutorial — 2 levels: flat terrain, full-width pad, ½ gravity (level 1) → full gravity, two pads at ⅓ and ⅔ width (level 2)
 - [x] Tutorial intro and transition popups adapt to the selected thrust mode and difficulty
-- [x] Settings screen — Sound, Vibration, Difficulty, Debug HUD; settings and menu choices are saved to the SD card
+- [x] Settings screen — Sound, Vibration, Difficulty, TV mode, Debug HUD; settings and menu choices are saved to the SD card
 - [x] App icon
 - [x] Persisted high score (saved to SD card; open it from the lander icon on the menu)
 - [x] "Game complete" screen after level 30
 - [x] High-multiplier pads are narrower: 3×→13 px, 5×→10 px
+- [x] Multiplier labels drawn above a pad hide while the lander is over that pad
+- [x] Mid-flight, a tap of Back re-zeroes tilt steering; hold Back 1 s to leave
+- [x] TV mode — squishes the playfield vertically for the Video Game Module's HDMI output
 - [x] Debug HUD (see below)
 
 ## Build & install
@@ -52,12 +55,14 @@ Apps menu.
 | Up — Tap Impulse | Each press = fixed velocity kick |
 | Up — Ramp | Hold; thrust ramps 0→100% over ~0.5 s |
 | OK on banner | Next level (landed) / Retry (crashed) |
-| Back | Return to menu |
+| Back (hold 1 s) while flying | Return to menu |
+| Back on banner or popup | Return to menu |
 
 ### Vidya (VGM tilt) modes
 Requires the Flipper Zero Video Game Module. Tilt left/right steers the lander
 (device roll → lander angle, 1:1 mapping). Calibration captures the "upright"
-position at the start of each level, including after retries.
+position at the start of each level, including after retries. If the zero
+drifts mid-flight, hold the Flipper upright and tap Back to re-zero it.
 
 | Mode | Thrust |
 |------|--------|
@@ -74,6 +79,24 @@ position at the start of each level, including after retries.
 | Medium     | < 8      | < 4      | < 13°       |
 | Hard       | < 4      | < 2      | < 6°        |
 | Realistic  | < 1      | < 1      | < 3°        |
+| Custom     | < 1–16   | < 1–8    | < 1–25°     |
+
+For Custom, scroll the Difficulty row in Settings to Custom, then press OK to
+set each limit (it can't be looser than Easy).
+
+Only a pad's own width is flattened, so any flat ground is a pad (3× and 5×
+pads are narrower). Touching down off a pad crashes, and the banner says
+"Missed the pad".
+
+## TV mode
+The Video Game Module always outputs 4:3 and shows each Flipper pixel 2 wide
+by 3 tall, so the game looks stretched on a TV. Settings → TV mode draws the
+playfield (terrain, lander, pads) at 2/3 height to compensate; physics is
+unchanged. Text isn't squished.
+
+In-game frames are drawn at ~31 fps (~15 fps while a banner or popup is up);
+physics still runs at 60 Hz. Each frame is sent to the TV over a serial link,
+and drawing fewer of them leaves the Flipper time for input.
 
 ## Pads per level
 

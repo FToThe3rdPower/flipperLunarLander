@@ -32,6 +32,7 @@ const char* const difficulty_label[DifficultyCount] = {
     "Medium",
     "Hard",
     "Realistic",
+    "Custom",
 };
 
 const char* const sound_level_label[SoundCount] = {
@@ -202,6 +203,10 @@ void menu_init(MenuState* m) {
     m->title_sel    = MenuTitleSelAbout;
     m->sound_level     = SoundMed;
     m->vibration_level = VibrationHigh;
+    m->custom_vx       = CUSTOM_VX_MAX;   // Custom starts out equal to Easy
+    m->custom_vy       = CUSTOM_VY_MAX;
+    m->custom_angle    = CUSTOM_ANGLE_MAX;
+    m->tv_mode         = false;
 }
 
 MenuAction menu_input(MenuState* m, const InputEvent* ev) {
@@ -246,7 +251,10 @@ MenuAction menu_input(MenuState* m, const InputEvent* ev) {
             }
             break;
         case InputKeyBack:
-            return MenuActionExit;
+            /* Tap only: a Back still held from leaving a game (a 3 s hold)
+             * keeps sending repeats, which must not close the app. */
+            if (ev->type == InputTypeShort) return MenuActionExit;
+            break;
         default:
             break;
     }

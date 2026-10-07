@@ -50,6 +50,10 @@ typedef struct {
     Difficulty   difficulty;
     SoundLevel     sound_level;
     VibrationLevel vibration_level;
+    uint8_t      custom_vx;      // DifficultyCustom limits: 1..CUSTOM_VX_MAX
+    uint8_t      custom_vy;      // 1..CUSTOM_VY_MAX
+    uint8_t      custom_angle;   // degrees, 1..CUSTOM_ANGLE_MAX
+    bool         tv_mode;        // squish the playfield for the Video Game Module
 } MenuState;
 
 void menu_init(MenuState* m);

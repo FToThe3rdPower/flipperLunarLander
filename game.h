@@ -62,6 +62,7 @@ typedef struct {
     float land_vx;        // vx captured at moment of landing/crash
     float land_vy;        // vy captured at moment of landing/crash
     float land_angle;     // angle (radians) captured at moment of landing/crash
+    bool  land_off_pad;   // touched down outside every pad's counted width
 
     /* Fuel campaign state. fuel_mode is captured at game start and used by the
      * advance/retry logic in game_input(). fuel_at_level_start is the value of
@@ -85,6 +86,16 @@ typedef struct {
     uint16_t sfx_freq;    // Hz
     bool sfx_vibrate;     // whether this SFX also pulses the vibro motor
 
+    /* Back while flying: a tap re-zeroes tilt steering; holding it long
+     * enough sets exit_requested, which the app layer acts on. */
+    bool  back_held;
+    float back_hold_time;   // seconds
+    bool  exit_requested;
+
+    /* Short message in a box mid-screen while flying, e.g. "Tilt zeroed". */
+    const char* toast;
+    float       toast_time; // seconds left
+
     bool hud_hidden;      // set by the app layer when the debug overlay is active
 } GameState;
 
@@ -98,7 +109,13 @@ typedef struct {
 void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int starting_fuel, Difficulty difficulty);
 /* Tutorial variant: flat terrain, single centred pad, half-gravity on level 1. */
 void game_init_tutorial(GameState* g, int tut_level, int score, Difficulty difficulty);
-GameAction game_input(GameState* g, const InputEvent* ev);
+/* Limits used by DifficultyCustom (degrees for the angle). Set from Settings;
+ * applies from the next game_init. */
+void game_set_custom_limits(int vx, int vy, int angle_deg);
+/* TV mode squishes the playfield toward the bottom row so it looks right on
+ * the Video Game Module's 4:3 output. */
+void game_set_tv_mode(bool on);
+GameAction game_input(GameState* g, const InputEvent* ev, ThrustMode thrust_mode);
 void game_tick(GameState* g, ThrustMode mode, float dt);
 void game_draw(Canvas* canvas, const GameState* g);
 /* True while the landed/crashed banner is on screen (after the crash flash). */
