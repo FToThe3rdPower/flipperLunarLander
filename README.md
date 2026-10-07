@@ -26,7 +26,7 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [x] "Game complete" screen after level 30
 - [x] High-multiplier pads are narrower: 3×→13 px, 5×→10 px
 - [x] Multiplier labels drawn above a pad hide while the lander is over that pad
-- [x] Mid-flight, a tap of Back re-zeroes tilt steering; hold Back 3 s to leave
+- [x] Mid-flight, a tap of Back re-zeroes tilt steering; hold Back 1 s to leave
 - [x] TV mode — squishes the playfield vertically for the Video Game Module's HDMI output
 - [x] Debug HUD (see below)
 
@@ -55,7 +55,7 @@ Apps menu.
 | Up — Tap Impulse | Each press = fixed velocity kick |
 | Up — Ramp | Hold; thrust ramps 0→100% over ~0.5 s |
 | OK on banner | Next level (landed) / Retry (crashed) |
-| Back (hold 3 s) while flying | Return to menu |
+| Back (hold 1 s) while flying | Return to menu |
 | Back on banner or popup | Return to menu |
 
 ### Vidya (VGM tilt) modes
@@ -84,9 +84,9 @@ drifts mid-flight, hold the Flipper upright and tap Back to re-zero it.
 For Custom, scroll the Difficulty row in Settings to Custom, then press OK to
 set each limit (it can't be looser than Easy).
 
-A pad's counted width is drawn as a 2-px plate; the flat ground around the
-narrower 3× and 5× pads doesn't count. Touching down off a pad crashes, and
-the banner says "Missed the pad".
+Only a pad's own width is flattened, so any flat ground is a pad (3× and 5×
+pads are narrower). Touching down off a pad crashes, and the banner says
+"Missed the pad".
 
 ## TV mode
 The Video Game Module always outputs 4:3 and shows each Flipper pixel 2 wide
