@@ -251,7 +251,7 @@ MenuAction menu_input(MenuState* m, const InputEvent* ev) {
             }
             break;
         case InputKeyBack:
-            /* Tap only: a Back still held from leaving a game (a 3 s hold)
+            /* Tap only: a Back still held from leaving a game (a 1 s hold)
              * keeps sending repeats, which must not close the app. */
             if (ev->type == InputTypeShort) return MenuActionExit;
             break;

@@ -2,7 +2,7 @@
 #include <math.h>
 #include <stdlib.h>
 
-/* Sprite layout — matches the reference PNG exactly (7×7 with 2-px feet).
+/* Sprite layout — 7×7 with 2-px feet.
  *
  *        ###       y=-3   body top (3 wide)
  *       #   #      y=-2   ┐ body sides (5 wide outline,
@@ -13,8 +13,8 @@
  *      ##   ##     y=+3   2-pixel feet at each corner
  *
  * No antenna. The "taper" is the four cut corner pixels of the body outline.
- * Foot tips (outermost pixels) sit at ±LANDER_FOOT_DX = ±3, so the collision
- * footprint in game.c is unchanged from earlier versions.
+ * Foot tips (outermost pixels) sit at ±LANDER_FOOT_DX = ±3, which is also
+ * the collision footprint game.c uses.
  */
 
 void lander_draw_static(Canvas* canvas, int cx, int cy) {

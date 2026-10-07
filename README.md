@@ -2,6 +2,11 @@
 
 Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari game.
 
+## Requirements
+
+- Any Flipper Zero. Developed on firmware 1.4.3; also builds against 1.5.1-rc.
+- The Vidya tilt modes need the Flipper Zero Video Game Module.
+
 ## Status
 - [x] Menu — thrust mode & fuel mode selectors, clickable title opens Info, lander icon opens High Score, wrench opens Settings
 - [x] 30-level campaign with procedural terrain seeded per level; spike removal pass
@@ -139,7 +144,9 @@ With Debug HUD on, everything except `S` is also logged at 6 Hz under
 | `lander_sprite.c / .h` | Lander silhouette — static and rotated with flame |
 | `vgm_tilt.c / .h` | VGM IMU wrapper (pitch/roll → steer/thrust) |
 | `sensors/` | ICM-42688P driver and IMU fusion (VGM tilt hardware layer), from [flipperzero-game-engine](https://github.com/flipperdevices/flipperzero-game-engine) (GPL-3.0) |
-| `application.fam` | Flipper app manifest |
+| `application.fam` | Flipper app manifest (name, version, short description, icon) |
+| `docs/description.md` | App description shown in the Flipper Apps Catalog (limited Markdown) |
+| `changelog.md` | Version history, also shown in the catalog |
 
 ## Tunables
 The top of `game.c` has a `#define` block for gravity, thrust, rotation rate,

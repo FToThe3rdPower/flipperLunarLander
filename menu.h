@@ -15,7 +15,7 @@ typedef enum {
 } MenuRow;
 
 /* Sub-selection within the title row: lander sprite (score), title text
- * (about), gear (settings). Left/Right cycles left-to-right. */
+ * (about), wrench (settings). Left/Right cycles left-to-right. */
 typedef enum {
     MenuTitleSelScore = 0,
     MenuTitleSelAbout,

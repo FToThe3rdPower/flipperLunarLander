@@ -33,7 +33,7 @@
 #define THRUST_MAX                     18.0f   // pixels/sec^2 along lander up-axis at full thrust
 #define IMPULSE_DV                     5.0f    // velocity change per tap (TapImpulse mode)
 #define IMPULSE_FUEL                   2.0f
-#define RAMP_TIME                      0.5f    // seconds from 0 -> full thrust in Ramp mode was 0.7
+#define RAMP_TIME                      0.5f    // seconds from 0 -> full thrust in Ramp mode
 #define FUEL_BURN_RATE                 12.0f   // units/sec at full thrust
 #define ROT_RATE                       1.8f    // radians/sec while Left/Right held
 #define WRAP_X                         1       // wrap horizontally (classic)
@@ -282,9 +282,7 @@ void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int start
 
     g->x = (float)SCREEN_W / 2.0f;
     g->y = 6.0f;
-    /* Random initial Vx in [-5, +5] pixels/sec. Interpreting "±5" as a range;
-     * if you wanted strictly ±5 (one or the other, never in between), the
-     * fix is `g->vx = rand_range(g, 0, 1) ? 5.0f : -5.0f;`. */
+    /* Random initial Vx in [-5, +5] pixels/sec, fixed per level by the seed. */
     g->vx = (float)rand_range(g, -5, 5);
     g->vy = 0.0f;
     g->angle = 0.0f;
@@ -601,9 +599,8 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
 
 /* ----- TapImpulse handling -----------------------------------------------
  * Tap impulses fire instantly on press, separate from the per-tick thrust
- * level. The main app dispatches this via game_input_tap() below.
- * For modularity we handle it inside game_input() when the user presses Up
- * AND the mode is TapImpulse.
+ * level. lunar_lander.c calls this on an Up press in the two tap modes
+ * (Tap Impulse and Vidya Tilt+Tap).
  */
 void game_apply_tap_impulse(GameState* g) {
     if (g->status != GameStatusFlying || g->fuel <= 0.0f) return;
@@ -1009,8 +1006,8 @@ void game_draw(Canvas* canvas, const GameState* g) {
 
     /* Crash flash: XOR-invert the scene (terrain + lander) on alternating
      * phases for FLASH_DURATION. FLASH_PHASE_HZ controls how often it flips —
-     * lower number = slower flashing. 5 Hz = 200ms per phase. HUD draws on
-     * top unaffected so the player can still read what's going on. */
+     * lower number = slower flashing. 2.5 Hz = 400 ms per phase. HUD draws
+     * on top unaffected so the player can still read what's going on. */
     if ((g->status == GameStatusCrashed || g->status == GameStatusOutOfFuel) &&
         g->status_time < FLASH_DURATION) {
         const float FLASH_PHASE_HZ = 2.5f;
@@ -1041,12 +1038,12 @@ void game_draw(Canvas* canvas, const GameState* g) {
 /* ----- Audio + vibration -------------------------------------------------
  * The speaker is acquired when entering the game screen and released on
  * leaving. While acquired, we set its frequency once per tick based on game
- * state. furi_hal_speaker_start() with a new freq while already playing
- * appears to smoothly change pitch on Flipper hardware — I haven't seen
- * clicking during ramp-mode sweeps, but tell me if you hear it.
+ * state; furi_hal_speaker_start() with a new frequency while already
+ * playing changes the pitch smoothly.
  *
- * Vibration is on during continuous thrust (Binary/Ramp) and pulsed for
- * tap impulse and crashes. Landing intentionally has sound only.
+ * Vibration is on during continuous thrust (Binary/Ramp/Full Tilt), pulses
+ * for tap impulses and crashes, and gives three short pulses on landing.
+ * Its strength comes from per-tick software PWM (see VibrationLevel).
  */
 
 static bool      audio_acquired = false;

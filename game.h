@@ -107,7 +107,8 @@ typedef struct {
  *                  the previous level's remaining fuel on advance (no-refuel),
  *                  or fuel_at_level_start on retry. */
 void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int starting_fuel, Difficulty difficulty);
-/* Tutorial variant: flat terrain, single centred pad, half-gravity on level 1. */
+/* Tutorial variant: flat terrain. Level 1 is all pad at half gravity;
+ * level 2 has two pads at full gravity. */
 void game_init_tutorial(GameState* g, int tut_level, int score, Difficulty difficulty);
 /* Limits used by DifficultyCustom (degrees for the angle). Set from Settings;
  * applies from the next game_init. */
@@ -132,5 +133,5 @@ void game_audio_update(const GameState* g, ThrustMode mode, SoundLevel sound_lev
 /* Pad count for a given level number (1-indexed). */
 int game_pads_for_level(int level);
 
-/* Called by main when Up is pressed in TapImpulse mode. */
+/* Called by main when Up is pressed in a tap mode (Tap Impulse, Vidya Tilt+Tap). */
 void game_apply_tap_impulse(GameState* g);

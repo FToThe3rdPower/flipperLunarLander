@@ -1,11 +1,8 @@
 /*
- * VGM IMU wrapper — implementation via the flipperdevices/flipperzero-game-engine.
- *
- * Build dependency: the game engine must be available as a library or its
- * source files included alongside this app.  The relevant header is:
- *   <sensors/imu.h>
- * which provides Imu*, imu_alloc(), imu_free(), imu_present(),
- * imu_pitch_get(), imu_roll_get().
+ * VGM IMU wrapper. The driver in sensors/ is copied unchanged from
+ * flipperdevices/flipperzero-game-engine; its sensors/imu.h provides
+ * Imu*, imu_alloc(), imu_free(), imu_present(), imu_pitch_get() and
+ * imu_roll_get().
  */
 
 #include "vgm_tilt.h"
