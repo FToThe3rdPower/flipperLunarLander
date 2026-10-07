@@ -64,20 +64,6 @@ extern const char* const difficulty_label[DifficultyCount];
 #define CUSTOM_VY_MAX     16
 #define CUSTOM_ANGLE_MAX  25   // degrees
 
-/* TV mode squishes the playfield vertically. The Video Game Module shows
- * each Flipper pixel 2 wide by 3 tall, so a TV picture looks stretched:
- * 67% undoes that on a 4:3 picture, ~90% if the TV stretches it to 16:9. */
-typedef enum {
-    TvSquishOff = 0,
-    TvSquish90,
-    TvSquish80,
-    TvSquish67,
-    TvSquishCount,
-} TvSquish;
-
-extern const char* const tv_squish_label[TvSquishCount];
-extern const float       tv_squish_factor[TvSquishCount];
-
 typedef enum {
     SoundOff = 0,
     SoundLow,

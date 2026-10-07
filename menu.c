@@ -35,14 +35,6 @@ const char* const difficulty_label[DifficultyCount] = {
     "Custom",
 };
 
-const char* const tv_squish_label[TvSquishCount] = {
-    "Off", "90%", "80%", "67%",
-};
-
-const float tv_squish_factor[TvSquishCount] = {
-    1.0f, 0.9f, 0.8f, 2.0f / 3.0f,
-};
-
 const char* const sound_level_label[SoundCount] = {
     "Off", "Low", "Med", "High",
 };
@@ -214,7 +206,7 @@ void menu_init(MenuState* m) {
     m->custom_vx       = CUSTOM_VX_MAX;   // Custom starts out equal to Easy
     m->custom_vy       = CUSTOM_VY_MAX;
     m->custom_angle    = CUSTOM_ANGLE_MAX;
-    m->tv_squish       = TvSquishOff;
+    m->tv_mode         = false;
 }
 
 MenuAction menu_input(MenuState* m, const InputEvent* ev) {

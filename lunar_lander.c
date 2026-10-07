@@ -129,7 +129,7 @@ typedef struct {
     uint8_t custom_vx;
     uint8_t custom_vy;
     uint8_t custom_angle;
-    uint8_t tv_squish;
+    uint8_t tv_mode;      // 0/1 (v2 builds briefly stored a squish level; any non-zero = on)
 } SavedSettings;
 
 /* Version 1 files stop after debug_hud. */
@@ -147,15 +147,15 @@ static SavedSettings settings_snapshot(const AppModel* m) {
         .custom_vx       = m->menu.custom_vx,
         .custom_vy       = m->menu.custom_vy,
         .custom_angle    = m->menu.custom_angle,
-        .tv_squish       = (uint8_t)m->menu.tv_squish,
+        .tv_mode         = m->menu.tv_mode,
     };
     return s;
 }
 
-/* game.c keeps the custom limits and TV squish itself; push them over. */
+/* game.c keeps the custom limits and TV mode itself; push them over. */
 static void settings_apply_to_game(const AppModel* m) {
     game_set_custom_limits(m->menu.custom_vx, m->menu.custom_vy, m->menu.custom_angle);
-    game_set_y_squish(tv_squish_factor[m->menu.tv_squish]);
+    game_set_tv_mode(m->menu.tv_mode);
 }
 
 static void settings_load(AppModel* m) {
@@ -166,7 +166,7 @@ static void settings_load(AppModel* m) {
         size_t n = storage_file_read(file, &s, sizeof(s));
         /* Every value indexes a label/volume table, so a damaged file must
          * not get through: out-of-range values keep the defaults. Version 1
-         * files predate the custom limits and TV squish. */
+         * files predate the custom limits and TV mode. */
         bool base_ok = n >= SAVED_SETTINGS_V1_SIZE &&
                        (s.version == 1 || s.version == SETTINGS_VERSION) &&
                        s.thrust_mode < ThrustModeCount && s.fuel_mode < FuelModeCount &&
@@ -183,12 +183,11 @@ static void settings_load(AppModel* m) {
         if(base_ok && s.version == SETTINGS_VERSION && n == sizeof(s) &&
            s.custom_vx >= 1 && s.custom_vx <= CUSTOM_VX_MAX &&
            s.custom_vy >= 1 && s.custom_vy <= CUSTOM_VY_MAX &&
-           s.custom_angle >= 1 && s.custom_angle <= CUSTOM_ANGLE_MAX &&
-           s.tv_squish < TvSquishCount) {
+           s.custom_angle >= 1 && s.custom_angle <= CUSTOM_ANGLE_MAX) {
             m->menu.custom_vx    = s.custom_vx;
             m->menu.custom_vy    = s.custom_vy;
             m->menu.custom_angle = s.custom_angle;
-            m->menu.tv_squish    = (TvSquish)s.tv_squish;
+            m->menu.tv_mode      = s.tv_mode != 0;
         }
         storage_file_close(file);
     }
@@ -214,8 +213,8 @@ static void settings_save(const AppModel* m) {
 typedef enum {
     SettingsRowSound = 0,
     SettingsRowVibration,
-    SettingsRowDifficulty,   // OK opens the custom difficulty screen
-    SettingsRowTvSquish,
+    SettingsRowDifficulty,   // OK on Custom opens the custom limits screen
+    SettingsRowTvMode,
     SettingsRowDebugHud,
     SettingsRowCount,
 } SettingsRow;
@@ -234,8 +233,8 @@ static void settings_row_label(const AppModel* m, int row, char* buf, size_t siz
         case SettingsRowDifficulty:
             snprintf(buf, size, "Difficulty: %s", difficulty_label[m->menu.difficulty]);
             break;
-        case SettingsRowTvSquish:
-            snprintf(buf, size, "TV squish: %s", tv_squish_label[m->menu.tv_squish]);
+        case SettingsRowTvMode:
+            snprintf(buf, size, "TV mode: %s", m->menu.tv_mode ? "On" : "Off");
             break;
         default:
             snprintf(buf, size, "Debug HUD: %s", m->debug_hud ? "On" : "Off");
@@ -259,8 +258,8 @@ static void settings_row_change(AppModel* m, int row, int step) {
         case SettingsRowDifficulty:
             m->menu.difficulty = (Difficulty)cycle(m->menu.difficulty, step, DifficultyCount);
             break;
-        case SettingsRowTvSquish:
-            m->menu.tv_squish = (TvSquish)cycle(m->menu.tv_squish, step, TvSquishCount);
+        case SettingsRowTvMode:
+            m->menu.tv_mode = !m->menu.tv_mode;
             break;
         default:
             m->debug_hud = !m->debug_hud;
@@ -663,9 +662,8 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                     break;
                 case InputKeyOk:
                     if (m->settings_focus == SettingsRowDifficulty) {
-                        /* OK on Difficulty selects Custom and opens its limits. */
-                        if (ev->type == InputTypeShort) {
-                            m->menu.difficulty = DifficultyCustom;
+                        /* Scroll to Custom with Left/Right, then OK edits its limits. */
+                        if (ev->type == InputTypeShort && m->menu.difficulty == DifficultyCustom) {
                             set_screen(app, ScreenCustomDifficulty);
                         }
                     } else {

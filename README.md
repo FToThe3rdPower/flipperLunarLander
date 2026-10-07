@@ -20,7 +20,7 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [x] 20% dim overlay behind status banners
 - [x] Tutorial — 2 levels: flat terrain, full-width pad, ½ gravity (level 1) → full gravity, two pads at ⅓ and ⅔ width (level 2)
 - [x] Tutorial intro and transition popups adapt to the selected thrust mode and difficulty
-- [x] Settings screen — Sound, Vibration, Difficulty, TV squish, Debug HUD; settings and menu choices are saved to the SD card
+- [x] Settings screen — Sound, Vibration, Difficulty, TV mode, Debug HUD; settings and menu choices are saved to the SD card
 - [x] App icon
 - [x] Persisted high score (saved to SD card; open it from the lander icon on the menu)
 - [x] "Game complete" screen after level 30
@@ -81,15 +81,18 @@ drifts mid-flight, hold the Flipper upright and tap Back to re-zero it.
 | Realistic  | < 1      | < 1      | < 3°        |
 | Custom     | < 1–16   | < 1–8    | < 1–25°     |
 
-For Custom, press OK on the Difficulty row in Settings and set each limit
-(it can't be looser than Easy).
+For Custom, scroll the Difficulty row in Settings to Custom, then press OK to
+set each limit (it can't be looser than Easy).
+
+A pad's counted width is drawn as a 2-px plate; the flat ground around the
+narrower 3× and 5× pads doesn't count. Touching down off a pad crashes, and
+the banner says "Missed the pad".
 
 ## TV mode
-The Video Game Module shows each Flipper pixel 2 wide by 3 tall, so the game
-looks stretched on a TV. Settings → TV squish compresses the playfield
-(terrain, lander, pads) vertically to compensate: 67% looks right on a 4:3
-picture, about 90% if your TV stretches the picture to 16:9. Text isn't
-squished.
+The Video Game Module always outputs 4:3 and shows each Flipper pixel 2 wide
+by 3 tall, so the game looks stretched on a TV. Settings → TV mode draws the
+playfield (terrain, lander, pads) at 2/3 height to compensate; physics is
+unchanged. Text isn't squished.
 
 In-game frames are drawn at ~31 fps (~15 fps while a banner or popup is up);
 physics still runs at 60 Hz. Each frame is sent to the TV over a serial link,

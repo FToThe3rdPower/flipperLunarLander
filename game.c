@@ -27,7 +27,7 @@
 #define MUL_1X_THRESH      8              // basically right below spawn
 #define MUL_2X_THRESH      (SCREEN_W / 5) // ~25 px
 #define MUL_3X_THRESH      (SCREEN_W / 3) // ~42 px — beyond this → 5x
-#define MULTIPLIER_DISAPPEARING_HEIGHT // The height at which the multiplier character disappears when the lander enters it's area (PAD_WIDTH * MULTIPLIER_DISAPPEARING_HEIGHT)
+#define MULTIPLIER_DISAPPEARING_HEIGHT 11 // The height at which the multiplier character disappears when the lander enters it's area (PAD_WIDTH * MULTIPLIER_DISAPPEARING_HEIGHT)
 
 #define GRAVITY            6.0f    // pixels/sec^2 downward
 #define THRUST_MAX         18.0f   // pixels/sec^2 along lander up-axis at full thrust
@@ -479,6 +479,7 @@ static void check_collision(GameState* g) {
     g->land_vx    = g->vx;
     g->land_vy    = g->vy;
     g->land_angle = g->angle;
+    g->land_off_pad = !on_flat;
     g->vx = g->vy = 0.0f;
 }
 
@@ -612,11 +613,14 @@ static void draw_degree_sym(Canvas* canvas, int x, int y) {
     canvas_draw_dot(canvas, x+1, y+2);
 }
 
-/* TV mode squish (1.0 = off), set from Settings via game_set_y_squish(). */
+/* TV mode: the Video Game Module always outputs 4:3 and shows each Flipper
+ * pixel 2 wide by 3 tall, so drawing the playfield at 2/3 height makes it
+ * look right on the TV. Set from Settings via game_set_tv_mode(). */
+#define TV_MODE_SQUISH (2.0f / 3.0f)
 static float y_squish = 1.0f;
 
-void game_set_y_squish(float squish) {
-    y_squish = (squish > 0.0f && squish <= 1.0f) ? squish : 1.0f;
+void game_set_tv_mode(bool on) {
+    y_squish = on ? TV_MODE_SQUISH : 1.0f;
 }
 
 /* World y (1 px = 1 m) to screen y. TV mode squishes the world toward the
@@ -632,7 +636,6 @@ static float screen_y(float y) {
  * as it touches down. */
 static bool lander_over_pad(const GameState* g, int i) {
     int pad_y    = g->terrain[g->pad_x[i]];
-    int lander_h = (int)(LANDER_FOOT_DY - LANDER_BODY_TOP) + 1;   // 7 rows
     int zone_x0  = g->pad_x[i];
     int zone_x1  = g->pad_x[i] + g->pad_w[i];
     int zone_y0  = pad_y - MULTIPLIER_DISAPPEARING_HEIGHT;
@@ -684,6 +687,19 @@ static void draw_terrain(Canvas* canvas, const GameState* g) {
         int px = g->pad_x[i];
         int py = top[px];
         int pw = (int)g->pad_w[i];
+
+        /* Mark the width that actually counts: a white row under the pad
+         * surface makes it a 2-px plate, distinct from the flat shelf
+         * around narrowed 3x/5x pads. A pad on the bottom row has no room
+         * under it, so a 1-px gap at each end marks it instead. */
+        canvas_set_color(canvas, ColorWhite);
+        if (py + 1 < SCREEN_H) {
+            canvas_draw_box(canvas, px, py + 1, pw, 1);
+        } else {
+            if (px > 0) canvas_draw_dot(canvas, px - 1, py);
+            if (px + pw < SCREEN_W) canvas_draw_dot(canvas, px + pw, py);
+        }
+        canvas_set_color(canvas, ColorBlack);
 
         char buf[8];
         snprintf(buf, sizeof(buf), "%dx", (int)g->pad_mul[i]);
@@ -801,12 +817,15 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
     bool vx_bad     = fabsf(g->land_vx)    >= g->safe_vx;
     bool vy_bad     = fabsf(g->land_vy)    >= g->safe_vy;
     bool angle_bad  = is_crash && fabsf(g->land_angle) >= g->safe_angle;
+    bool pad_bad    = is_crash && g->land_off_pad;
     bool blink_hide = is_crash && (((int)(g->status_time * 3.0f) % 2) == 1);
 
-    /* Banner grows a line when angle also caused the crash. */
+    /* Banner grows a line when the angle, or missing the pad, caused the
+     * crash. Both at once: the angle gets the line. */
+    bool reason_line = angle_bad || pad_bad;
     int bx = 14, bw = SCREEN_W - 28;
-    int by = angle_bad ? 10 : 14;
-    int bh = angle_bad ? 44 : 36;
+    int by = reason_line ? 10 : 14;
+    int bh = reason_line ? 44 : 36;
 
     canvas_set_color(canvas, ColorWhite);
     canvas_draw_box(canvas, bx, by, bw, bh);
@@ -820,7 +839,7 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
     /* Line 2 — velocities; offending values blink on crash */
     char buf[16];
     canvas_set_font(canvas, FontSecondary);
-    int vel_y = by + (angle_bad ? 19 : 20);
+    int vel_y = by + (reason_line ? 19 : 20);
     if(!(vx_bad && blink_hide)) {
         snprintf(buf, sizeof(buf), "Vx:%+d", (int)g->land_vx);
         canvas_draw_str_aligned(canvas, SCREEN_W / 2 - 3, vel_y, AlignRight, AlignCenter, buf);
@@ -830,7 +849,7 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
         canvas_draw_str_aligned(canvas, SCREEN_W / 2 + 3, vel_y, AlignLeft, AlignCenter, buf);
     }
 
-    /* Line 3 — angle, only when it was the cause; blinks too.
+    /* Line 3 — the angle when it was a cause, else "Missed the pad"; blinks.
      * Layout: [θ][:NN][°][R/L] — θ and ° drawn as pixel-art, ASCII measured
      * with canvas_string_width so the whole thing centers correctly. */
     if(angle_bad && !blink_hide) {
@@ -853,10 +872,14 @@ static void draw_status_banner(Canvas* canvas, const GameState* g) {
         draw_degree_sym(canvas, x, cy - 3);    // superscript: top aligns with text top
         x += 4;
         canvas_draw_str(canvas, x, cy + 3, dir_str);
+    } else if(pad_bad && !blink_hide) {
+        /* Slow and level but off the pad — e.g. on the flat shelf around a
+         * narrowed 3x/5x pad. */
+        canvas_draw_str_aligned(canvas, SCREEN_W / 2, by + 29, AlignCenter, AlignCenter, "Missed the pad");
     }
 
     /* Last line — action prompt */
-    int prompt_y = by + (angle_bad ? 39 : 30);
+    int prompt_y = by + (reason_line ? 39 : 30);
     canvas_draw_str_aligned(canvas, SCREEN_W / 2, prompt_y, AlignCenter, AlignCenter, line2);
 }
 
