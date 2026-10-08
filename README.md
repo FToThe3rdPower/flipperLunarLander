@@ -10,8 +10,10 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 ## Status
 - [x] Menu — thrust mode & fuel mode selectors, clickable title opens Info, lander icon opens High Score, wrench opens Settings
 - [x] 30-level campaign with procedural terrain seeded per level; spike removal pass
+- [x] Seeds 1–9999, each its own set of 30 levels (seed 1 is the original set)
 - [x] Lander physics — gravity, thrust, rotation, wrapping, collision
-- [x] Three button thrust modes: Binary (hold UP), Tap Impulse (press UP), Ramp (hold UP, ramps up)
+- [x] Three button thrust modes: Button Tap Impulse (press), Button Binary (hold), Button Ramp (hold, ramps up)
+- [x] Thrust button: UP or OK, chosen in Settings
 - [x] Four Video Game Module "vidya" tilt control modes.
 - [x] Fuel campaign modes: Full refuel, or No-refuel (Easy 500 / Med 350 / Hard 200 total)
 - [x] Difficulty selector — scales safe-landing thresholds (Easy / Medium / Hard / Realistic / Custom)
@@ -25,13 +27,13 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [x] 20% dim overlay behind status banners
 - [x] Tutorial — 2 levels: flat terrain, full-width pad, ½ gravity (level 1) → full gravity, two pads at ⅓ and ⅔ width (level 2)
 - [x] Tutorial intro and transition popups adapt to the selected thrust mode and difficulty
-- [x] Settings screen — Sound, Vibration, Difficulty, TV mode, Debug HUD; settings and menu choices are saved to the SD card
+- [x] Settings screen — Sound, Vibration, Difficulty, Thrust button, Seed, TV mode, Debug HUD, with a scrollbar; settings and menu choices are saved to the SD card
 - [x] App icon
-- [x] Persisted high score (saved to SD card; open it from the lander icon on the menu)
+- [x] Persisted high score with the seed it was set on (saved to SD card; open it from the lander icon on the menu)
 - [x] "Game complete" screen after level 30
 - [x] High-multiplier pads are narrower: 3×→13 px, 5×→10 px
 - [x] Multiplier labels drawn above a pad hide while the lander is over that pad
-- [x] Mid-flight, a tap of Back re-zeroes tilt steering; hold Back 1 s to leave
+- [x] Pause menu — tap Back mid-flight: Resume, Zero tilt (tilt modes), Quit to menu; hold Back 1 s to leave
 - [x] TV mode — squishes the playfield vertically for the Video Game Module's HDMI output
 - [x] Debug HUD (see below)
 
@@ -53,27 +55,37 @@ Apps menu.
 ## Controls
 
 ### Button modes
+The thrust button is Up; Settings → Thrust button switches it to OK.
+
 | Input | Action |
 |-------|--------|
 | Left / Right (hold) | Rotate lander |
-| Up — Binary | Hold = full thrust |
-| Up — Tap Impulse | Each press = fixed velocity kick |
-| Up — Ramp | Hold; thrust ramps 0→100% over ~0.5 s |
+| Thrust button — Button Binary | Hold = full thrust |
+| Thrust button — Button Tap Impulse | Each press = fixed velocity kick |
+| Thrust button — Button Ramp | Hold; thrust ramps 0→100% over ~0.5 s |
 | OK on banner | Next level (landed) / Retry (crashed) |
-| Back (hold 1 s) while flying | Return to menu |
+| Back (tap) while flying | Pause menu |
+| Back (hold 1 s) while flying or paused | Return to menu |
 | Back on banner or popup | Return to menu |
+
+### Pause menu
+Tapping Back mid-flight freezes the game and opens the pause menu. Up and
+Down choose, OK picks, and another Back tap resumes. **Zero tilt** (tilt
+modes only) makes the way you're holding the Flipper the new "straight up"
+for steering, then resumes. **Quit to menu** keeps a new high score, like
+holding Back does.
 
 ### Vidya (VGM tilt) modes
 Requires the Flipper Zero Video Game Module. Tilt left/right steers the lander
 (device roll → lander angle, 1:1 mapping). Calibration captures the "upright"
 position at the start of each level, including after retries. If the zero
-drifts mid-flight, hold the Flipper upright and tap Back to re-zero it.
+drifts mid-flight, tap Back, hold the Flipper upright and pick Zero tilt.
 
 | Mode | Thrust |
 |------|--------|
-| Vidya Tilt + Tap | UP fires a burst |
-| Vidya Tilt + Binary | Hold UP |
-| Vidya Tilt + Ramp | Hold UP, ramps up |
+| Vidya Tilt + Tap | The thrust button fires a burst |
+| Vidya Tilt + Binary | Hold the thrust button |
+| Vidya Tilt + Ramp | Hold the thrust button, ramps up |
 | Vidya Full Tilt | Tilt forward = proportional thrust; no button needed |
 
 ## Difficulty
@@ -93,11 +105,24 @@ Only a pad's own width is flattened, so any flat ground is a pad (3× and 5×
 pads are narrower). Touching down off a pad crashes, and the banner says
 "Missed the pad".
 
+## Seeds
+Settings → Seed picks the world. Each seed from 1 to 9999 generates its own
+30 levels (terrain, pads and starting drift); seed 1 is the original set.
+Left/Right steps through seeds and OK picks a random one. The high score
+screen shows the seed the high score was set on.
+
 ## TV mode
 The Video Game Module always outputs 4:3 and shows each Flipper pixel 2 wide
 by 3 tall, so the game looks stretched on a TV. Settings → TV mode draws the
 playfield (terrain, lander, pads) at 2/3 height to compensate; physics is
 unchanged. Text isn't squished.
+
+The module's own firmware sets that picture, and an app can't change it: the
+Flipper only streams its 128×64 frame. The firmware
+([video-game-module](https://github.com/flipperdevices/video-game-module),
+`app/frame.c`) always sends 640×480 at 60 Hz, the one mode every HDMI display
+must accept, and repeats each Flipper row on 3 lines to fill more of the
+screen.
 
 In-game frames are drawn at ~31 fps (~15 fps while a banner or popup is up);
 physics still runs at 60 Hz. Each frame is sent to the TV over a serial link,
@@ -119,8 +144,8 @@ pads are 16 px wide; 3× pads are 13 px; 5× pads are 10 px (a few px wider
 than the lander's 7 px footprint).
 
 ## Debug HUD
-Turn it on in Settings. It replaces the normal HUD while flying (the
-landed/crashed banner hides it):
+Turn it on in Settings. It replaces the normal HUD while flying (the pause
+menu and the landed/crashed banner hide it):
 
 | Field | Meaning |
 |-------|---------|
@@ -140,6 +165,7 @@ With Debug HUD on, everything except `S` is also logged at 6 Hz under
 | `lunar_lander.c` | Main loop, event dispatch, 60 Hz tick, screen transitions |
 | `lunar_lander.h` | Shared enums — ThrustMode, FuelMode, Difficulty, Screen |
 | `menu.c / .h` | Title/menu screen and mode selectors |
+| `pause_menu.c / .h` | Pause menu rows and drawing; `game.c` decides what each choice does |
 | `game.c / .h` | Physics, terrain, collision, audio, drawing |
 | `lander_sprite.c / .h` | Lander silhouette — static and rotated with flame |
 | `vgm_tilt.c / .h` | VGM IMU wrapper (pitch/roll → steer/thrust) |

@@ -1,3 +1,12 @@
+## v1.1
+- Pause menu: tap Back while flying to pause, then Resume, Zero tilt (tilt modes) or Quit to menu. Holding Back 1 second still returns to the menu
+- Thrust button setting: fire the engine with Up or OK
+- Seed setting: each seed from 1 to 9999 is its own set of 30 levels. Seed 1 is the original set, and OK on the row picks a random seed
+- The high score screen shows the seed the score was set on
+- The button-only thrust modes are labeled "Button" on the menu
+- The Settings list has a scrollbar
+- Fixed the Vidya Tilt+Ramp tutorial, which said to tilt forward for thrust; that mode ramps on the thrust button
+
 ## v1.0
 First release on the Flipper Apps Catalog.
 

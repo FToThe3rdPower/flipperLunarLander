@@ -44,9 +44,9 @@
 #define TILT_THRUST_DEAD               3.0f    // pitch dead-zone (degrees) before thrust starts
 #define TILT_THRUST_MAX                35.0f   // pitch degrees that yield 100% thrust
 
-/* Back while flying: tap = re-zero tilt, hold = back to the menu */
+/* Back while flying: tap = pause menu, hold = back to the menu */
 #define BACK_HOLD_EXIT                 1.0f    // sec of holding Back to leave mid-flight
-#define BACK_HOLD_SHOW                 0.3f    // sec before the hold-to-exit box shows (taps never do)
+#define BACK_HOLD_SHOW                 0.3f    // sec before the hold-to-exit box replaces the pause menu (taps never show it)
 #define TOAST_TIME                     0.5f    // sec a toast ("Tilt zeroed") stays up
 
 #define START_FUEL                     100.0f
@@ -255,6 +255,22 @@ void game_set_custom_limits(int vx, int vy, int angle_deg) {
     custom_angle = (float)angle_deg * (3.14159265f / 180.0f);
 }
 
+/* World seed, set from Settings via game_set_seed(). It is hashed into a
+ * salt that is XORed into every level's terrain seed. Seed 1's salt is 0,
+ * so it keeps the original 30 levels. */
+static uint32_t seed_salt = 0;
+
+void game_set_seed(uint16_t seed) {
+    /* lowbias32 hash of seed - 1; it maps 0 to 0. */
+    uint32_t h = (uint32_t)seed - 1u;
+    h ^= h >> 16;
+    h *= 0x7FEB352Du;
+    h ^= h >> 15;
+    h *= 0x846CA68Bu;
+    h ^= h >> 16;
+    seed_salt = h;
+}
+
 static void apply_difficulty(GameState* g, Difficulty d) {
     switch(d) {
         case DifficultyEasy:       g->safe_vy = 16.0f; g->safe_vx = 8.0f; g->safe_angle = 0.44f;  break;
@@ -270,9 +286,9 @@ void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int start
     g->level = level;
     g->score = score;
     g->fuel_mode = fuel_mode;
-    /* Seed depends on level. Mixing constants keep adjacent levels visually
-     * different rather than near-identical. */
-    g->rng_state = 0xA5C3F00Du ^ ((uint32_t)level * 0x9E3779B1u);
+    /* Seed depends on level and the world seed. Mixing constants keep
+     * adjacent levels visually different rather than near-identical. */
+    g->rng_state = (0xA5C3F00Du ^ ((uint32_t)level * 0x9E3779B1u)) ^ seed_salt;
 
     terrain_generate(g);
     terrain_despike(g);
@@ -291,7 +307,7 @@ void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int start
     g->status = GameStatusFlying;
     g->status_time = 0.0f;
     g->elapsed = 0.0f;
-    g->up_hold_time = 0.0f;
+    g->thrust_hold_time = 0.0f;
     g->current_thrust = 0.0f;
     g->needs_tilt_cal = true;
     g->tilt_pitch_offset = 0.0f;
@@ -360,24 +376,79 @@ static void show_toast(GameState* g, const char* msg) {
     g->toast_time = TOAST_TIME;
 }
 
+/* The key that fires the engine, set from Settings via game_set_thrust_key(). */
+static ThrustKey thrust_key = ThrustKeyUp;
+
+void game_set_thrust_key(ThrustKey key) {
+    thrust_key = key;
+}
+
+static InputKey thrust_input_key(void) {
+    return (thrust_key == ThrustKeyOk) ? InputKeyOk : InputKeyUp;
+}
+
+/* Tap modes (Tap Impulse, Vidya Tilt+Tap) fire a fixed impulse on each press
+ * of the thrust key, separate from the per-tick thrust level. */
+static void apply_tap_impulse(GameState* g) {
+    if (g->status != GameStatusFlying || g->pause.open || g->fuel <= 0.0f) return;
+    g->vx += sinf(g->angle) * IMPULSE_DV;
+    g->vy += -cosf(g->angle) * IMPULSE_DV;
+    g->fuel -= IMPULSE_FUEL;
+    if (g->fuel < 0.0f) g->fuel = 0.0f;
+    g->sfx_remaining = SFX_TAP_DUR;
+    g->sfx_freq = SFX_TAP_FREQ;
+    g->sfx_vibrate = true;
+}
+
+static void release_key(GameState* g, InputKey key) {
+    if (key == InputKeyLeft)       g->left_held = false;
+    if (key == InputKeyRight)      g->right_held = false;
+    if (key == thrust_input_key()) g->thrust_held = false;
+    if (key == InputKeyOk)         g->ok_armed = false;
+}
+
+/* Keys while the pause menu is open (Back is handled in game_input). */
+static GameAction pause_input(GameState* g, const InputEvent* ev) {
+    /* Releases still clear held keys, so nothing is stuck on resume, but
+     * presses start no new holds: Up and OK work the menu here. */
+    if (ev->type == InputTypeRelease) release_key(g, ev->key);
+    switch (pause_menu_input(&g->pause, ev)) {
+        case PauseActionResume:
+            g->pause.open = false;
+            break;
+        case PauseActionZeroTilt:
+            /* The way the Flipper is held now steers straight up. Roll only,
+             * as the old Back tap did: Full Tilt's thrust zero stays where
+             * the level started. */
+            g->tilt_roll_offset = g->tilt_roll;
+            show_toast(g, "Tilt zeroed");
+            g->pause.open = false;
+            break;
+        case PauseActionQuit:
+            return GameActionExitToMenu;
+        default:
+            break;
+    }
+    return GameActionNone;
+}
+
 GameAction game_input(GameState* g, const InputEvent* ev, ThrustMode thrust_mode) {
     if (ev->key == InputKeyBack) {
         if (g->status == GameStatusFlying) {
-            /* Mid-flight a tap re-zeroes tilt steering (the VGM's zero drifts),
-             * and leaving takes a BACK_HOLD_EXIT hold, timed in game_tick, so
-             * a tap can't end the run by accident. */
+            /* Mid-flight, Back pauses the moment it goes down. A tap leaves
+             * the pause menu open, or closes it if it was already open.
+             * Holding it BACK_HOLD_EXIT (timed in game_tick) leaves for the
+             * menu, so a tap can't end the run by accident. */
             if (ev->type == InputTypePress) {
                 g->back_held = true;
                 g->back_hold_time = 0.0f;
+                g->back_opened_pause = !g->pause.open;
+                if (!g->pause.open) pause_menu_open(&g->pause, mode_uses_tilt(thrust_mode));
+            } else if (ev->type == InputTypeShort) {
+                if (!g->back_opened_pause) g->pause.open = false;
             } else if (ev->type == InputTypeRelease) {
                 g->back_held = false;
-            } else if (ev->type == InputTypeShort) {
-                if (mode_uses_tilt(thrust_mode)) {
-                    g->tilt_roll_offset = g->tilt_roll;
-                    show_toast(g, "Tilt zeroed");
-                } else {
-                    show_toast(g, "Hold BACK to exit");
-                }
+                g->back_opened_pause = false;
             }
             return GameActionNone;
         }
@@ -388,26 +459,24 @@ GameAction game_input(GameState* g, const InputEvent* ev, ThrustMode thrust_mode
         return GameActionNone;
     }
 
-    /* Track held state for Left/Right/Up. The Flipper sends Press + Release
-     * for every keypress, plus Short/Long/Repeat in between. Held state lives
-     * between Press and Release. */
+    if (g->pause.open) return pause_input(g, ev);
+
+    /* Held state for Left/Right and the thrust key lives between Press and
+     * Release. The Flipper sends Press + Release for every keypress, plus
+     * Short/Long/Repeat in between. */
     if (ev->type == InputTypePress) {
-        switch (ev->key) {
-            case InputKeyLeft:  g->left_held = true; break;
-            case InputKeyRight: g->right_held = true; break;
-            case InputKeyUp:
-                g->up_held = true;
-                g->up_hold_time = 0.0f;
-                break;
-            default: break;
+        if (ev->key == InputKeyLeft)  g->left_held = true;
+        if (ev->key == InputKeyRight) g->right_held = true;
+        if (ev->key == thrust_input_key()) {
+            g->thrust_held = true;
+            g->thrust_hold_time = 0.0f;
+            if (thrust_mode == ThrustModeTapImpulse || thrust_mode == ThrustModeVidyaTap) {
+                apply_tap_impulse(g);
+            }
         }
+        if (ev->key == InputKeyOk) g->ok_armed = (g->status != GameStatusFlying);
     } else if (ev->type == InputTypeRelease) {
-        switch (ev->key) {
-            case InputKeyLeft:  g->left_held = false; break;
-            case InputKeyRight: g->right_held = false; break;
-            case InputKeyUp:    g->up_held = false; break;
-            default: break;
-        }
+        release_key(g, ev->key);
     }
 
     /* On status screens, OK retries (crash) or advances (landed).
@@ -416,7 +485,7 @@ GameAction game_input(GameState* g, const InputEvent* ev, ThrustMode thrust_mode
      *   - FuelModeFull: every level starts with START_FUEL (classic).
      *   - No-refuel:    advance carries remaining fuel forward;
      *                   retry rewinds to fuel_at_level_start. */
-    if (ev->type == InputTypeShort && ev->key == InputKeyOk) {
+    if (ev->type == InputTypeShort && ev->key == InputKeyOk && g->ok_armed) {
         if (g->status == GameStatusLanded) {
             int next = g->level + 1;
             if (next > HIGHEST_LEVEL) return GameActionWin;
@@ -522,13 +591,19 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
         return;
     }
 
-    g->elapsed += dt;
-
-    if (g->toast_time > 0.0f) g->toast_time -= dt;
     if (g->back_held) {
         g->back_hold_time += dt;
         if (g->back_hold_time >= BACK_HOLD_EXIT) g->exit_requested = true;
     }
+    /* Paused: only the Back hold above is timed; the flight is frozen. */
+    if (g->pause.open) {
+        g->current_thrust = 0.0f;
+        return;
+    }
+
+    g->elapsed += dt;
+
+    if (g->toast_time > 0.0f) g->toast_time -= dt;
 
     /* Rotation — buttons for non-VGM modes; direct angle mapping for VGM modes. */
     if(mode_uses_tilt(mode)) {
@@ -542,15 +617,15 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
     /* Thrust level (0..1) per mode. */
     g->current_thrust = 0.0f;
     if(mode == ThrustModeBinary || mode == ThrustModeVidyaBinary) {
-        g->current_thrust = g->up_held ? 1.0f : 0.0f;
+        g->current_thrust = g->thrust_held ? 1.0f : 0.0f;
     } else if(mode == ThrustModeRamp || mode == ThrustModeVidyaRamp) {
-        if(g->up_held) {
-            g->up_hold_time += dt;
-            float t = g->up_hold_time / RAMP_TIME;
+        if(g->thrust_held) {
+            g->thrust_hold_time += dt;
+            float t = g->thrust_hold_time / RAMP_TIME;
             if(t > 1.0f) t = 1.0f;
             g->current_thrust = t;
         } else {
-            g->up_hold_time = 0.0f;
+            g->thrust_hold_time = 0.0f;
             g->current_thrust = 0.0f;
         }
     } else if(mode == ThrustModeVidyaFull) {
@@ -561,7 +636,7 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
         if(t > 1.0f) t = 1.0f;
         g->current_thrust = t;
     }
-    /* TapImpulse and VidyaTap handled by game_input on the press event. */
+    /* TapImpulse and VidyaTap fire in game_input, on the key press. */
 
     /* Apply thrust acceleration along lander up-axis (-y when angle=0). */
     if (g->current_thrust > 0.0f && g->fuel > 0.0f) {
@@ -595,22 +670,6 @@ void game_tick(GameState* g, ThrustMode mode, float dt) {
     if (g->y < CEILING_Y) { g->y = CEILING_Y; if (g->vy < 0.0f) g->vy = 0.0f; }
 
     check_collision(g);
-}
-
-/* ----- TapImpulse handling -----------------------------------------------
- * Tap impulses fire instantly on press, separate from the per-tick thrust
- * level. lunar_lander.c calls this on an Up press in the two tap modes
- * (Tap Impulse and Vidya Tilt+Tap).
- */
-void game_apply_tap_impulse(GameState* g) {
-    if (g->status != GameStatusFlying || g->fuel <= 0.0f) return;
-    g->vx += sinf(g->angle) * IMPULSE_DV;
-    g->vy += -cosf(g->angle) * IMPULSE_DV;
-    g->fuel -= IMPULSE_FUEL;
-    if (g->fuel < 0.0f) g->fuel = 0.0f;
-    g->sfx_remaining = SFX_TAP_DUR;
-    g->sfx_freq = SFX_TAP_FREQ;
-    g->sfx_vibrate = true;
 }
 
 /* ----- Drawing ----------------------------------------------------------- */
@@ -923,18 +982,21 @@ void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_m
         canvas_draw_line(canvas, bx + 2, by + 13, bx + bw - 3, by + 13);
         canvas_set_font(canvas, FontSecondary);
 
-        const char* thrust_str;
+        /* Names the thrust key from Settings. Vidya Ramp ramps on the key
+         * like Ramp; only Full Tilt thrusts by tilting forward. */
+        const char* key = thrust_key_label[thrust_key];
+        char thrust_str[28];
         switch(thrust_mode) {
             case ThrustModeVidyaFull:
-            case ThrustModeVidyaRamp:
-                thrust_str = "Tilt fwd = ramp thruster"; break;
+                snprintf(thrust_str, sizeof(thrust_str), "Tilt fwd = ramp thruster"); break;
             case ThrustModeRamp:
-                thrust_str = "UP = ramp thruster";       break;
+            case ThrustModeVidyaRamp:
+                snprintf(thrust_str, sizeof(thrust_str), "%s = ramp thruster", key);   break;
             case ThrustModeTapImpulse:
             case ThrustModeVidyaTap:
-                thrust_str = "UP = burst thruster";      break;
+                snprintf(thrust_str, sizeof(thrust_str), "%s = burst thruster", key);  break;
             default:
-                thrust_str = "UP = engage thruster";     break;
+                snprintf(thrust_str, sizeof(thrust_str), "%s = engage thruster", key); break;
         }
         bool is_vidya = (thrust_mode >= ThrustModeVidyaTap);
         const char* rotate_str = is_vidya ? "L/R tilt = rotate" : "L/R = rotate";
@@ -973,8 +1035,9 @@ void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_m
 }
 
 /* Mid-flight messages, in a small white box so they read over terrain: the
- * hold-to-exit progress while Back is held, otherwise a short toast. Kept
- * below the HUD rows so the debug overlay doesn't cover them. */
+ * hold-to-exit progress while Back is held, else the pause menu while
+ * paused, else a short toast. The progress box and toast sit below the HUD
+ * rows so the debug overlay doesn't cover them. */
 static void draw_flight_messages(Canvas* canvas, const GameState* g) {
     canvas_set_font(canvas, FontSecondary);
     if (g->back_held && g->back_hold_time > BACK_HOLD_SHOW) {
@@ -988,6 +1051,8 @@ static void draw_flight_messages(Canvas* canvas, const GameState* g) {
         if (p > 1.0f) p = 1.0f;
         canvas_draw_frame(canvas, bx + 6, by + 11, bw - 12, 4);
         canvas_draw_box(canvas, bx + 6, by + 11, (size_t)((bw - 12) * p), 4);
+    } else if (g->pause.open) {
+        pause_menu_draw(canvas, &g->pause);
     } else if (g->toast && g->toast_time > 0.0f) {
         const int bh = 11, by = 28;
         int bw = (int)canvas_string_width(canvas, g->toast) + 10;
@@ -1020,10 +1085,9 @@ void game_draw(Canvas* canvas, const GameState* g) {
     }
 
     if(!g->hud_hidden) draw_hud(canvas, g);
-    if(g->status == GameStatusFlying) draw_flight_messages(canvas, g);
 
-    /* Dim the whole frame when the status banner is up. */
-    if(game_banner_visible(g)) draw_dim_overlay(canvas);
+    /* Dim the whole frame under the pause menu or the status banner. */
+    if(g->pause.open || game_banner_visible(g)) draw_dim_overlay(canvas);
 
     if(g->vgm_missing) {
         canvas_set_font(canvas, FontSecondary);
@@ -1032,6 +1096,7 @@ void game_draw(Canvas* canvas, const GameState* g) {
             "VGM not found");
     }
 
+    if(g->status == GameStatusFlying) draw_flight_messages(canvas, g);
     draw_status_banner(canvas, g);
 }
 
@@ -1113,6 +1178,12 @@ void game_audio_update(const GameState* g, ThrustMode mode, SoundLevel sound_lev
         target_freq = (uint16_t)(THRUST_FREQ_MIN +
                                  g->current_thrust * (THRUST_FREQ_MAX - THRUST_FREQ_MIN));
         vibro_any = true;
+    }
+
+    /* Paused: silence, even if a tap blip was still playing. */
+    if(g->pause.open) {
+        target_freq = 0;
+        vibro_any = false;
     }
 
     /* Landing celebration: 3 short vibration pulses. */

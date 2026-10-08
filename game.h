@@ -3,6 +3,7 @@
 #include <gui/gui.h>
 #include <input/input.h>
 #include "lunar_lander.h"
+#include "pause_menu.h"
 
 #define MAX_PADS 5
 
@@ -34,9 +35,9 @@ typedef struct {
     /* Input state */
     bool left_held;
     bool right_held;
-    bool up_held;
-    float up_hold_time;   // seconds (used by Ramp mode)
-    float current_thrust; // 0..1, derived from mode + input each tick
+    bool thrust_held;        // the thrust key (UP or OK, from Settings)
+    float thrust_hold_time;  // seconds (used by Ramp mode)
+    float current_thrust;    // 0..1, derived from mode + input each tick
 
     /* VGM tilt state — written by the main loop before each game_tick call.
      * pitch: 0=normal hold (up-button up), +90≈flat/screen-up.
@@ -86,11 +87,18 @@ typedef struct {
     uint16_t sfx_freq;    // Hz
     bool sfx_vibrate;     // whether this SFX also pulses the vibro motor
 
-    /* Back while flying: a tap re-zeroes tilt steering; holding it long
-     * enough sets exit_requested, which the app layer acts on. */
+    /* Back while flying pauses at once and opens the pause menu; holding it
+     * BACK_HOLD_EXIT sets exit_requested, which the app layer acts on. */
     bool  back_held;
-    float back_hold_time;   // seconds
+    float back_hold_time;     // seconds
     bool  exit_requested;
+    PauseMenu pause;          // pause.open = physics frozen, menu up
+    bool  back_opened_pause;  // this Back press opened the menu: its tap mustn't close it
+
+    /* True while an OK press that began after touchdown is down. Only such a
+     * press advances or retries, so an OK thrust tap that ends just after
+     * touchdown can't skip the result banner. */
+    bool  ok_armed;
 
     /* Short message in a box mid-screen while flying, e.g. "Tilt zeroed". */
     const char* toast;
@@ -116,6 +124,10 @@ void game_set_custom_limits(int vx, int vy, int angle_deg);
 /* TV mode squishes the playfield toward the bottom row so it looks right on
  * the Video Game Module's 4:3 output. */
 void game_set_tv_mode(bool on);
+/* The key that fires the engine; set from Settings. */
+void game_set_thrust_key(ThrustKey key);
+/* World seed (SEED_MIN..SEED_MAX); applies from the next game_init. */
+void game_set_seed(uint16_t seed);
 GameAction game_input(GameState* g, const InputEvent* ev, ThrustMode thrust_mode);
 void game_tick(GameState* g, ThrustMode mode, float dt);
 void game_draw(Canvas* canvas, const GameState* g);
@@ -132,6 +144,3 @@ void game_audio_update(const GameState* g, ThrustMode mode, SoundLevel sound_lev
 
 /* Pad count for a given level number (1-indexed). */
 int game_pads_for_level(int level);
-
-/* Called by main when Up is pressed in a tap mode (Tap Impulse, Vidya Tilt+Tap). */
-void game_apply_tap_impulse(GameState* g);
