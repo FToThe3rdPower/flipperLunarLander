@@ -8,18 +8,32 @@
 
 /* Chosen in the menu, used by the game. */
 typedef enum {
-    ThrustModeTapImpulse = 0,   // each tap = one fixed impulse
-    ThrustModeBinary,           // hold UP = full thrust, release = off
-    ThrustModeRamp,             // hold UP, thrust ramps up over time
+    ThrustModeTapImpulse = 0,   // each tap of the thrust key = one fixed impulse
+    ThrustModeBinary,           // hold the thrust key = full thrust, release = off
+    ThrustModeRamp,             // hold the thrust key, thrust ramps up over time
     ThrustModeVidyaTap,         // VGM tilt steering + tap impulse
-    ThrustModeVidyaBinary,      // VGM tilt steering + binary (hold UP) thrust
-    ThrustModeVidyaRamp,        // VGM tilt steering + ramped (hold UP) thrust
+    ThrustModeVidyaBinary,      // VGM tilt steering + binary (held key) thrust
+    ThrustModeVidyaRamp,        // VGM tilt steering + ramped (held key) thrust
     ThrustModeVidyaFull,        // VGM full tilt: tilt steers AND fires thrusters
     ThrustModeCount,
 } ThrustMode;
 
 extern const char* const thrust_mode_label[ThrustModeCount];
-extern const char* const thrust_mode_desc[ThrustModeCount];
+
+/* The key that fires the engine in every mode except Full Tilt. Set in
+ * Settings. */
+typedef enum {
+    ThrustKeyUp = 0,
+    ThrustKeyOk,
+    ThrustKeyCount,
+} ThrustKey;
+
+extern const char* const thrust_key_label[ThrustKeyCount];
+
+/* World seed, set in Settings: each seed is a different set of 30 levels.
+ * Seed 1 is the original set. */
+#define SEED_MIN 1
+#define SEED_MAX 9999
 
 /* Fuel modes — affects starting fuel and whether fuel refills between levels.
  * "Full" is the classic arcade behavior. The no-refuel modes give you a fixed

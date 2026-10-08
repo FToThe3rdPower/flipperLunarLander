@@ -13,7 +13,7 @@
 #define LANDER_FOOT_DY      3.0f    // foot y
 
 /* Draw the lander upright (no rotation) centered at integer pixel (cx, cy).
- * Fast path used by the menu and info screen. */
+ * Fast path used by the menu's title bar. */
 void lander_draw_static(Canvas* canvas, int cx, int cy);
 
 /* Draw the lander rotated by `angle` (radians, 0 = upright, +ve = clockwise)

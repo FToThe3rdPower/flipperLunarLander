@@ -9,7 +9,9 @@
 
 #include <furi.h>
 #include <furi_hal_cortex.h>
+#include <furi_hal_random.h>
 #include <gui/gui.h>
+#include <gui/elements.h>
 #include <input/input.h>
 #include <storage/storage.h>
 #include <stddef.h>
@@ -19,7 +21,7 @@
 
 #define HIGH_SCORE_PATH EXT_PATH("apps_data/lunar_lander/score.bin")
 #define SETTINGS_PATH   EXT_PATH("apps_data/lunar_lander/lunarLanderSettings.bin")
-#define SETTINGS_VERSION 2
+#define SETTINGS_VERSION 3
 
 #include "lunar_lander.h"
 #include "menu.h"
@@ -54,11 +56,13 @@ typedef struct {
     MenuState menu;
     GameState game;
     int settings_focus;   // a SettingsRow; reset when Settings is opened from the menu
+    int settings_top;     // first SettingsRow shown; the list scrolls to keep the focus shown
     int custom_focus;     // custom difficulty screen row: 0 Vx, 1 Vy, 2 angle
     VgmTilt* vgm;         // non-NULL while a VGM tilt mode is active
     int  tutorial_level;          // 1 or 2 (valid when screen == ScreenTutorial)
     bool tutorial_popup_showing;  // physics paused; waiting for OK to dismiss
     int  high_score;
+    uint16_t high_score_seed;     // the seed the high score was set on
     bool game_complete_new_record;
 
     /* Debug overlay — toggled from Settings screen. */
@@ -90,25 +94,33 @@ typedef struct {
 
 /* ----- High score persistence -------------------------------------------- */
 
-static void high_score_load(int* hs) {
+static void high_score_load(int* hs, uint16_t* seed) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     File* file = storage_file_alloc(storage);
     *hs = 0;
+    *seed = SEED_MIN;
     if(storage_file_open(file, HIGH_SCORE_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
         /* A short or damaged file reads as no score rather than garbage. */
         if(storage_file_read(file, hs, sizeof(int)) != sizeof(int) || *hs < 0) *hs = 0;
+        /* The seed it was set on follows. Files from before seeds stop
+         * after the score, which was set on seed 1. */
+        uint16_t s;
+        if(storage_file_read(file, &s, sizeof(s)) == sizeof(s) && s >= SEED_MIN && s <= SEED_MAX) {
+            *seed = s;
+        }
         storage_file_close(file);
     }
     storage_file_free(file);
     furi_record_close(RECORD_STORAGE);
 }
 
-static void high_score_save(int hs) {
+static void high_score_save(int hs, uint16_t seed) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     storage_simply_mkdir(storage, EXT_PATH("apps_data/lunar_lander"));
     File* file = storage_file_alloc(storage);
     if(storage_file_open(file, HIGH_SCORE_PATH, FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
         storage_file_write(file, &hs, sizeof(int));
+        storage_file_write(file, &seed, sizeof(seed));
         storage_file_close(file);
     }
     storage_file_free(file);
@@ -130,10 +142,15 @@ typedef struct {
     uint8_t custom_vy;
     uint8_t custom_angle;
     uint8_t tv_mode;      // 0/1 (v2 builds briefly stored a squish level; any non-zero = on)
+    /* Added in version 3 */
+    uint8_t thrust_key;
+    uint8_t seed_lo;      // seed, low byte first
+    uint8_t seed_hi;
 } SavedSettings;
 
-/* Version 1 files stop after debug_hud. */
+/* Version 1 files stop after debug_hud, version 2 files after tv_mode. */
 #define SAVED_SETTINGS_V1_SIZE offsetof(SavedSettings, custom_vx)
+#define SAVED_SETTINGS_V2_SIZE offsetof(SavedSettings, thrust_key)
 
 static SavedSettings settings_snapshot(const AppModel* m) {
     SavedSettings s = {
@@ -148,27 +165,34 @@ static SavedSettings settings_snapshot(const AppModel* m) {
         .custom_vy       = m->menu.custom_vy,
         .custom_angle    = m->menu.custom_angle,
         .tv_mode         = m->menu.tv_mode,
+        .thrust_key      = (uint8_t)m->menu.thrust_key,
+        .seed_lo         = (uint8_t)(m->menu.seed & 0xFF),
+        .seed_hi         = (uint8_t)(m->menu.seed >> 8),
     };
     return s;
 }
 
-/* game.c keeps the custom limits and TV mode itself; push them over. */
+/* game.c keeps the custom limits, TV mode, thrust key and seed itself; push
+ * them over. */
 static void settings_apply_to_game(const AppModel* m) {
     game_set_custom_limits(m->menu.custom_vx, m->menu.custom_vy, m->menu.custom_angle);
     game_set_tv_mode(m->menu.tv_mode);
+    game_set_thrust_key(m->menu.thrust_key);
+    game_set_seed(m->menu.seed);
 }
 
 static void settings_load(AppModel* m) {
     Storage* storage = furi_record_open(RECORD_STORAGE);
     File* file = storage_file_alloc(storage);
     if(storage_file_open(file, SETTINGS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
-        SavedSettings s;
+        SavedSettings s = {0};
         size_t n = storage_file_read(file, &s, sizeof(s));
         /* Every value indexes a label/volume table, so a damaged file must
          * not get through: out-of-range values keep the defaults. Version 1
-         * files predate the custom limits and TV mode. */
+         * files predate the custom limits and TV mode, version 2 files the
+         * thrust key and seed. */
         bool base_ok = n >= SAVED_SETTINGS_V1_SIZE &&
-                       (s.version == 1 || s.version == SETTINGS_VERSION) &&
+                       s.version >= 1 && s.version <= SETTINGS_VERSION &&
                        s.thrust_mode < ThrustModeCount && s.fuel_mode < FuelModeCount &&
                        s.difficulty < DifficultyCount && s.sound_level < SoundCount &&
                        s.vibration_level < VibrationCount;
@@ -180,7 +204,7 @@ static void settings_load(AppModel* m) {
             m->menu.vibration_level = (VibrationLevel)s.vibration_level;
             m->debug_hud         = s.debug_hud != 0;
         }
-        if(base_ok && s.version == SETTINGS_VERSION && n == sizeof(s) &&
+        if(base_ok && s.version >= 2 && n >= SAVED_SETTINGS_V2_SIZE &&
            s.custom_vx >= 1 && s.custom_vx <= CUSTOM_VX_MAX &&
            s.custom_vy >= 1 && s.custom_vy <= CUSTOM_VY_MAX &&
            s.custom_angle >= 1 && s.custom_angle <= CUSTOM_ANGLE_MAX) {
@@ -188,6 +212,13 @@ static void settings_load(AppModel* m) {
             m->menu.custom_vy    = s.custom_vy;
             m->menu.custom_angle = s.custom_angle;
             m->menu.tv_mode      = s.tv_mode != 0;
+        }
+        if(base_ok && s.version >= 3 && n == sizeof(s)) {
+            uint16_t seed = (uint16_t)(s.seed_lo | (s.seed_hi << 8));
+            if(s.thrust_key < ThrustKeyCount && seed >= SEED_MIN && seed <= SEED_MAX) {
+                m->menu.thrust_key = (ThrustKey)s.thrust_key;
+                m->menu.seed       = seed;
+            }
         }
         storage_file_close(file);
     }
@@ -214,6 +245,8 @@ typedef enum {
     SettingsRowSound = 0,
     SettingsRowVibration,
     SettingsRowDifficulty,   // OK on Custom opens the custom limits screen
+    SettingsRowThrustKey,
+    SettingsRowSeed,         // OK picks a random seed
     SettingsRowTvMode,
     SettingsRowDebugHud,
     SettingsRowCount,
@@ -232,6 +265,12 @@ static void settings_row_label(const AppModel* m, int row, char* buf, size_t siz
             break;
         case SettingsRowDifficulty:
             snprintf(buf, size, "Difficulty: %s", difficulty_label[m->menu.difficulty]);
+            break;
+        case SettingsRowThrustKey:
+            snprintf(buf, size, "Thrust button: %s", thrust_key_label[m->menu.thrust_key]);
+            break;
+        case SettingsRowSeed:
+            snprintf(buf, size, "Seed: %u", (unsigned)m->menu.seed);
             break;
         case SettingsRowTvMode:
             snprintf(buf, size, "TV mode: %s", m->menu.tv_mode ? "On" : "Off");
@@ -258,6 +297,13 @@ static void settings_row_change(AppModel* m, int row, int step) {
         case SettingsRowDifficulty:
             m->menu.difficulty = (Difficulty)cycle(m->menu.difficulty, step, DifficultyCount);
             break;
+        case SettingsRowThrustKey:
+            m->menu.thrust_key = (ThrustKey)cycle(m->menu.thrust_key, step, ThrustKeyCount);
+            break;
+        case SettingsRowSeed:
+            m->menu.seed = (uint16_t)(SEED_MIN + cycle(m->menu.seed - SEED_MIN, step,
+                                                       SEED_MAX - SEED_MIN + 1));
+            break;
         case SettingsRowTvMode:
             m->menu.tv_mode = !m->menu.tv_mode;
             break;
@@ -265,6 +311,26 @@ static void settings_row_change(AppModel* m, int row, int step) {
             m->debug_hud = !m->debug_hud;
             break;
     }
+}
+
+/* A random seed other than the current one, for OK on the Seed row. */
+static uint16_t random_seed(uint16_t current) {
+    uint16_t s = (uint16_t)(SEED_MIN + furi_hal_random_get() % (SEED_MAX - SEED_MIN + 1));
+    if(s == current) s = (s == SEED_MAX) ? SEED_MIN : (uint16_t)(s + 1);
+    return s;
+}
+
+/* Scrolls the Settings list so the focused row is shown, with one more row
+ * past it when there is one, so the next row is always in view. */
+static void settings_scroll_to_focus(AppModel* m) {
+    int top = m->settings_top;
+    if(m->settings_focus < top + 1) top = m->settings_focus - 1;
+    if(m->settings_focus > top + SETTINGS_ROWS_VISIBLE - 2) {
+        top = m->settings_focus - SETTINGS_ROWS_VISIBLE + 2;
+    }
+    if(top > SettingsRowCount - SETTINGS_ROWS_VISIBLE) top = SettingsRowCount - SETTINGS_ROWS_VISIBLE;
+    if(top < 0) top = 0;
+    m->settings_top = top;
 }
 
 /* Custom limits step by 1 between 1 and Easy's value; they don't wrap. */
@@ -341,9 +407,11 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             menu_draw(canvas, &app->model.menu);
             break;
         case ScreenGame: {
-            /* The debug overlay replaces the HUD, except while the
-             * landed/crashed banner is up: it would be drawn over it. */
-            bool overlay = app->model.debug_hud && !game_banner_visible(&app->model.game);
+            /* The debug overlay replaces the HUD, except while the pause
+             * menu or the landed/crashed banner is up: it would be drawn
+             * over them. */
+            bool overlay = app->model.debug_hud && !app->model.game.pause.open &&
+                           !game_banner_visible(&app->model.game);
             app->model.game.hud_hidden = overlay;
             game_draw(canvas, &app->model.game);
             if(overlay) draw_debug_overlay(canvas, &app->model);
@@ -351,7 +419,7 @@ static void draw_callback(Canvas* canvas, void* ctx) {
         }
         case ScreenTutorial: {
             bool overlay = app->model.debug_hud && !app->model.tutorial_popup_showing &&
-                           !game_banner_visible(&app->model.game);
+                           !app->model.game.pause.open && !game_banner_visible(&app->model.game);
             app->model.game.hud_hidden = overlay;
             game_draw(canvas, &app->model.game);
             if(app->model.tutorial_popup_showing) {
@@ -392,7 +460,11 @@ static void draw_callback(Canvas* canvas, void* ctx) {
                 char hs_buf[16];
                 snprintf(hs_buf, sizeof(hs_buf), "%d", app->model.high_score);
                 canvas_draw_str_aligned(
-                    canvas, SCREEN_W / 2, 36, AlignCenter, AlignCenter, hs_buf);
+                    canvas, SCREEN_W / 2, 32, AlignCenter, AlignCenter, hs_buf);
+                canvas_set_font(canvas, FontSecondary);
+                snprintf(hs_buf, sizeof(hs_buf), "Seed %u", (unsigned)app->model.high_score_seed);
+                canvas_draw_str_aligned(
+                    canvas, SCREEN_W / 2, 43, AlignCenter, AlignCenter, hs_buf);
             } else {
                 canvas_set_font(canvas, FontSecondary);
                 canvas_draw_str_aligned(
@@ -430,15 +502,19 @@ static void draw_callback(Canvas* canvas, void* ctx) {
             canvas_draw_str_aligned(
                 canvas, SCREEN_W / 2, 2, AlignCenter, AlignTop, "SETTINGS");
             canvas_draw_line(canvas, 0, 12, SCREEN_W - 1, 12);
-            /* Four rows fit; the list scrolls to keep the focused row shown. */
+            /* Four rows fit. The list scrolls to keep the focused row shown,
+             * and the scrollbar on the right shows where it is in the list. */
             int focus = app->model.settings_focus;
-            int first = focus >= SETTINGS_ROWS_VISIBLE ? focus - SETTINGS_ROWS_VISIBLE + 1 : 0;
+            int first = app->model.settings_top;
             char buf[24];
             for(int row = first; row < first + SETTINGS_ROWS_VISIBLE && row < SettingsRowCount;
                 row++) {
                 settings_row_label(&app->model, row, buf, sizeof(buf));
-                draw_selector_row(canvas, 14 + 12 * (row - first), buf, row == focus);
+                draw_selector_row_w(canvas, 2, 14 + 12 * (row - first), SCREEN_W - 8, buf,
+                                    row == focus);
             }
+            elements_scrollbar_pos(
+                canvas, SCREEN_W, 14, 12 * SETTINGS_ROWS_VISIBLE, focus, SettingsRowCount);
             break;
         }
         case ScreenCustomDifficulty: {
@@ -481,7 +557,7 @@ static void tick_timer_callback(void* ctx) {
     App* app = ctx;
     /* Keep at most one tick in the queue. If the loop falls behind, extra
      * ticks would fill it and input_callback's zero-timeout put would drop
-     * key Press/Release events, leaving Up/Left/Right stuck held (or never
+     * key Press/Release events, leaving thrust/Left/Right stuck held (or never
      * held). Skipped ticks don't slow physics: dt comes from the clock. */
     if (app->tick_pending) return;
     app->tick_pending = true;
@@ -539,6 +615,7 @@ static void set_screen(App* app, Screen new_screen) {
     /* Coming back from the custom limits screen keeps the Difficulty row. */
     if(new_screen == ScreenSettings && old == ScreenMenu) {
         m->settings_focus = 0;
+        m->settings_top   = 0;
     }
     if(new_screen == ScreenCustomDifficulty) {
         m->custom_focus = 0;
@@ -558,14 +635,21 @@ static void handle_menu_action(App* app, MenuAction action) {
     }
 }
 
+/* Keeps the game's score if it beats the high score, with the seed it was
+ * set on. Returns true for a new high score. */
+static bool high_score_record(AppModel* m) {
+    if(m->game.score <= m->high_score) return false;
+    m->high_score      = m->game.score;
+    m->high_score_seed = m->menu.seed;
+    high_score_save(m->high_score, m->high_score_seed);
+    return true;
+}
+
 /* Back to the menu from a game screen, keeping a new high score (the
  * tutorial doesn't count toward it). */
 static void leave_game(App* app) {
     AppModel* m = &app->model;
-    if(m->screen == ScreenGame && m->game.score > m->high_score) {
-        m->high_score = m->game.score;
-        high_score_save(m->high_score);
-    }
+    if(m->screen == ScreenGame) high_score_record(m);
     set_screen(app, ScreenMenu);
 }
 
@@ -584,49 +668,36 @@ static void handle_input_event(App* app, const InputEvent* ev) {
             break;
         }
         case ScreenGame: {
-            if((m->menu.thrust_mode == ThrustModeTapImpulse ||
-                m->menu.thrust_mode == ThrustModeVidyaTap) &&
-               ev->key == InputKeyUp && ev->type == InputTypePress) {
-                game_apply_tap_impulse(&m->game);
-            }
             GameAction a = game_input(&m->game, ev, m->menu.thrust_mode);
             if(a == GameActionExitToMenu) {
                 leave_game(app);
             } else if(a == GameActionWin) {
-                m->game_complete_new_record = (m->game.score > m->high_score);
-                if(m->game_complete_new_record) {
-                    m->high_score = m->game.score;
-                    high_score_save(m->high_score);
-                }
+                m->game_complete_new_record = high_score_record(m);
                 set_screen(app, ScreenGameComplete);
             }
             break;
         }
         case ScreenTutorial: {
-            /* No bursts while a popup is up: physics is paused, so a tap
-             * would only burn fuel and launch the lander once it closes. */
-            if(!m->tutorial_popup_showing &&
-               (m->menu.thrust_mode == ThrustModeTapImpulse ||
-                m->menu.thrust_mode == ThrustModeVidyaTap) &&
-               ev->key == InputKeyUp && ev->type == InputTypePress) {
-                game_apply_tap_impulse(&m->game);
-            }
-            /* Back on a popup leaves right away: the flight hasn't started,
-             * so the mid-flight tap/hold handling doesn't apply. */
-            if(m->tutorial_popup_showing && ev->key == InputKeyBack &&
-               (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
-                leave_game(app);
+            /* While a popup is up the flight hasn't started: Back leaves
+             * right away (no pause menu) and OK starts the level. Other
+             * presses are dropped, so no burst or thrust (OK can be the
+             * thrust key) fires on the way in; releases still reach the game
+             * so no key stays held. */
+            if(m->tutorial_popup_showing) {
+                if(ev->key == InputKeyBack &&
+                   (ev->type == InputTypeShort || ev->type == InputTypeLong)) {
+                    leave_game(app);
+                } else if(ev->key == InputKeyOk && ev->type == InputTypeShort) {
+                    m->tutorial_popup_showing = false;
+                } else if(ev->type == InputTypeRelease) {
+                    game_input(&m->game, ev, m->menu.thrust_mode);
+                }
                 break;
             }
-            /* Dismiss intro or transition popup. */
-            if(m->tutorial_popup_showing &&
-               ev->type == InputTypeShort && ev->key == InputKeyOk) {
-                m->tutorial_popup_showing = false;
-                break;
-            }
-            /* Level advance / retry. */
+            /* Level advance / retry, on an OK press that began after
+             * touchdown (see ok_armed in game.h). */
             if(ev->type == InputTypeShort && ev->key == InputKeyOk &&
-               m->game.status != GameStatusFlying) {
+               m->game.status != GameStatusFlying && m->game.ok_armed) {
                 if(m->game.status == GameStatusLanded) {
                     if(m->tutorial_level < 2) {
                         m->tutorial_level++;
@@ -650,9 +721,11 @@ static void handle_input_event(App* app, const InputEvent* ev) {
             switch (ev->key) {
                 case InputKeyUp:
                     if (m->settings_focus > 0) m->settings_focus--;
+                    settings_scroll_to_focus(m);
                     break;
                 case InputKeyDown:
                     if (m->settings_focus < SettingsRowCount - 1) m->settings_focus++;
+                    settings_scroll_to_focus(m);
                     break;
                 case InputKeyLeft:
                     settings_row_change(m, m->settings_focus, -1);
@@ -666,6 +739,8 @@ static void handle_input_event(App* app, const InputEvent* ev) {
                         if (ev->type == InputTypeShort && m->menu.difficulty == DifficultyCustom) {
                             set_screen(app, ScreenCustomDifficulty);
                         }
+                    } else if (m->settings_focus == SettingsRowSeed) {
+                        if (ev->type == InputTypeShort) m->menu.seed = random_seed(m->menu.seed);
                     } else {
                         settings_row_change(m, m->settings_focus, +1);
                     }
@@ -793,7 +868,7 @@ int32_t lunar_lander_app(void* p) {
     settings_apply_to_game(&app->model);
     app->model.screen = ScreenMenu;
     app->model.should_exit = false;
-    high_score_load(&app->model.high_score);
+    high_score_load(&app->model.high_score, &app->model.high_score_seed);
 
     app->view_port = view_port_alloc();
     view_port_draw_callback_set(app->view_port, draw_callback, app);
@@ -845,7 +920,7 @@ int32_t lunar_lander_app(void* p) {
         if (!live) {
             view_port_update(app->view_port);
         } else if (ev.type == AppEventTick) {
-            bool still = app->model.tutorial_popup_showing ||
+            bool still = app->model.tutorial_popup_showing || app->model.game.pause.open ||
                          app->model.game.status != GameStatusFlying;
             uint32_t now = furi_get_tick();
             uint32_t min_gap = (still ? STILL_FRAME_MS : FRAME_MS) * tick_freq / 1000;

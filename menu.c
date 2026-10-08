@@ -1,31 +1,40 @@
 #include "menu.h"
 #include "lander_sprite.h"
 #include <gui/canvas.h>
+#include <stdio.h>
 
 /* ----- Mode tables -------------------------------------------------------
- * Order here must match the enums in lunar_lander.h. The Tap-first ordering
- * for thrust was a deliberate choice (easiest mode first); fuel modes go
- * easiest-to-hardest top to bottom. */
+ * Order here must match the enums in lunar_lander.h. The button-only thrust
+ * modes come first, easiest (Tap) first, then the Video Game Module tilt
+ * modes; fuel modes go easiest-to-hardest top to bottom. */
 
 const char* const thrust_mode_label[ThrustModeCount] = {
-    "Tap Impulse",
-    "Binary",
-    "Ramp",
+    "Button Tap Impulse",
+    "Button Binary",
+    "Button Ramp",
     "Vidya module Tilt+Tap",
     "Vidya module Tilt+Binary",
     "Vidya module Tilt+Ramp",
     "Vidya module Full Tilt",
 };
 
-const char* const thrust_mode_desc[ThrustModeCount] = {
-    "Tap UP = one burst",
-    "Hold UP = full thrust",
-    "Hold UP, thrust ramps up",
-    "Tilt steers, tap UP=burst",
-    "Tilt steers, hold UP=thrust",
-    "Tilt steers, UP ramps thrust",
-    "Tilt steers + fires thrusters",
+const char* const thrust_key_label[ThrustKeyCount] = {
+    "UP",
+    "OK",
 };
+
+void thrust_mode_desc(ThrustMode mode, ThrustKey key, char* buf, size_t size) {
+    const char* k = thrust_key_label[key];
+    switch(mode) {
+        case ThrustModeTapImpulse:  snprintf(buf, size, "Tap %s = one burst", k);           break;
+        case ThrustModeBinary:      snprintf(buf, size, "Hold %s = full thrust", k);        break;
+        case ThrustModeRamp:        snprintf(buf, size, "Hold %s, thrust ramps up", k);     break;
+        case ThrustModeVidyaTap:    snprintf(buf, size, "Tilt steers, tap %s=burst", k);    break;
+        case ThrustModeVidyaBinary: snprintf(buf, size, "Tilt steers, hold %s=thrust", k);  break;
+        case ThrustModeVidyaRamp:   snprintf(buf, size, "Tilt steers, %s ramps thrust", k); break;
+        default:                    snprintf(buf, size, "Tilt steers + fires thrusters");   break;
+    }
+}
 
 const char* const difficulty_label[DifficultyCount] = {
     "Easy",
@@ -129,26 +138,35 @@ static void draw_title(Canvas* canvas, const MenuState* m) {
 
 /* Selector row factored so thrust and fuel share the same chrome.
  * `label` is what shows in the middle; `focused` controls the inverted look. */
-void draw_selector_row(Canvas* canvas, int y, const char* label, bool focused) {
+void draw_selector_row_w(Canvas* canvas, int x, int y, int w, const char* label, bool focused) {
     if (focused) {
-        canvas_draw_rbox(canvas, 2, y, SCREEN_W - 4, 12, 2);
+        canvas_draw_rbox(canvas, x, y, w, 12, 2);
         canvas_set_color(canvas, ColorWhite);
     } else {
-        canvas_draw_rframe(canvas, 2, y, SCREEN_W - 4, 12, 2);
+        canvas_draw_rframe(canvas, x, y, w, 12, 2);
     }
     canvas_set_font(canvas, FontSecondary);
-    canvas_draw_str_aligned(canvas, 7, y + 6, AlignLeft, AlignCenter, "<");
-    canvas_draw_str_aligned(canvas, SCREEN_W - 7, y + 6, AlignRight, AlignCenter, ">");
-    canvas_draw_str_aligned(canvas, SCREEN_W / 2, y + 6, AlignCenter, AlignCenter, label);
+    canvas_draw_str_aligned(canvas, x + 5, y + 6, AlignLeft, AlignCenter, "<");
+    canvas_draw_str_aligned(canvas, x + w - 5, y + 6, AlignRight, AlignCenter, ">");
+    canvas_draw_str_aligned(canvas, x + w / 2, y + 6, AlignCenter, AlignCenter, label);
     canvas_set_color(canvas, ColorBlack);
+}
+
+void draw_selector_row(Canvas* canvas, int y, const char* label, bool focused) {
+    draw_selector_row_w(canvas, 2, y, SCREEN_W - 4, label, focused);
 }
 
 /* Single description line shown beneath the selectors. Whichever row is
  * focused, its description shows. Title/Buttons rows → no description. */
 static void draw_focused_desc(Canvas* canvas, const MenuState* m, int y) {
+    char buf[32];
     const char* desc = NULL;
-    if (m->row == MenuRowThrust)      desc = thrust_mode_desc[m->thrust_mode];
-    else if (m->row == MenuRowFuel)   desc = fuel_mode_desc[m->fuel_mode];
+    if (m->row == MenuRowThrust) {
+        thrust_mode_desc(m->thrust_mode, m->thrust_key, buf, sizeof(buf));
+        desc = buf;
+    } else if (m->row == MenuRowFuel) {
+        desc = fuel_mode_desc[m->fuel_mode];
+    }
     if (!desc) return;
     canvas_set_font(canvas, FontSecondary);
     canvas_draw_str_aligned(canvas, SCREEN_W / 2, y, AlignCenter, AlignTop, desc);
@@ -207,6 +225,8 @@ void menu_init(MenuState* m) {
     m->custom_vy       = CUSTOM_VY_MAX;
     m->custom_angle    = CUSTOM_ANGLE_MAX;
     m->tv_mode         = false;
+    m->thrust_key      = ThrustKeyUp;
+    m->seed            = SEED_MIN;
 }
 
 MenuAction menu_input(MenuState* m, const InputEvent* ev) {
@@ -251,7 +271,7 @@ MenuAction menu_input(MenuState* m, const InputEvent* ev) {
             }
             break;
         case InputKeyBack:
-            /* Tap only: a Back still held from leaving a game (a 3 s hold)
+            /* Tap only: a Back still held from leaving a game (a 1 s hold)
              * keeps sending repeats, which must not close the app. */
             if (ev->type == InputTypeShort) return MenuActionExit;
             break;
