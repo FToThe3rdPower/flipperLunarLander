@@ -1,41 +1,11 @@
 # Lunar Lander for Flipper Zero
 
-Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari game.
+Clauded 'from scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari game.
 
 ## Requirements
 
-- Any Flipper Zero. Developed on firmware 1.4.3; also builds against 1.5.1-rc.
-- The Vidya tilt modes need the Flipper Zero Video Game Module.
-
-## Status
-- [x] Menu — thrust mode & fuel mode selectors, clickable title opens Info, lander icon opens High Score, wrench opens Settings
-- [x] 30-level campaign with procedural terrain seeded per level; spike removal pass
-- [x] Seeds 1–9999, each its own set of 30 levels (seed 1 is the original set)
-- [x] Lander physics — gravity, thrust, rotation, wrapping, collision
-- [x] Three button thrust modes: Button Tap Impulse (press), Button Binary (hold), Button Ramp (hold, ramps up)
-- [x] Thrust button: UP or OK, chosen in Settings
-- [x] Four Video Game Module "vidya" tilt control modes.
-- [x] Fuel campaign modes: Full refuel, or No-refuel (Easy 500 / Med 350 / Hard 200 total)
-- [x] Difficulty selector — scales safe-landing thresholds (Easy / Medium / Hard / Realistic / Custom)
-- [x] Distance-based pad multipliers: 1× (right below spawn), 2×, 3×, 5× (near edges)
-- [x] Scoring: `fuel × pad_multiplier × (HIGHEST_LEVEL − level + 1)`
-- [x] Level number shown at top center of HUD (L1–L30; T1–T2 during tutorial)
-- [x] HUD shows score, time, fuel (left) and angle θ, Vx, Vy (right)
-- [x] Sound — thrust tone (pitch scales with thrust level), tap blip, landing chime, crash rumble; Off / Low / Med / High
-- [x] Vibration — continuous on thrust, pulse per tap, 3-pulse celebration on landing, rumble on crash; Off / Low / Med / High
-- [x] Crash/landing banner — shows Vx and Vy at touchdown (plus the angle when it caused the crash); bad values blink on crash
-- [x] 20% dim overlay behind status banners
-- [x] Tutorial — 2 levels: flat terrain, full-width pad, ½ gravity (level 1) → full gravity, two pads at ⅓ and ⅔ width (level 2)
-- [x] Tutorial intro and transition popups adapt to the selected thrust mode and difficulty
-- [x] Settings screen — Sound, Vibration, Difficulty, Thrust button, Seed, TV mode, Debug HUD, with a scrollbar; settings and menu choices are saved to the SD card
-- [x] App icon
-- [x] Persisted high score with the seed it was set on (saved to SD card; open it from the lander icon on the menu)
-- [x] "Game complete" screen after level 30
-- [x] High-multiplier pads are narrower: 3×→13 px, 5×→10 px
-- [x] Multiplier labels drawn above a pad hide while the lander is over that pad
-- [x] Pause menu — tap Back mid-flight: Resume, Zero tilt (tilt modes), Quit to menu; hold Back 1 s to leave
-- [x] TV mode — squishes the playfield vertically for the Video Game Module's HDMI output
-- [x] Debug HUD (see below)
+- Any [Flipper Zero](https://flipper.net/products/flipper-zero). Developed on firmware 1.4.3; also builds against 1.5.1-rc.
+- The Vidya tilt modes need the 'VGM': [Flipper Zero Video Game Module](https://flipper.net/products/video-game-module-for-flipper-zero).
 
 ## Build & install
 ### Build from source
@@ -45,8 +15,13 @@ ufbt                          # builds .fap into dist/
 ufbt launch                   # build, upload, and run on the connected Flipper
 ```
 
-Make sure qFlipper and lab.flipper.net aren't holding the serial port when
-running `ufbt launch`.
+Make sure qFlipper and lab.flipper.net aren't hogging the serial port when
+trying to run `ufbt launch`.
+
+### Tunables
+The top of `game.c` has a `#define` block for gravity, thrust, rotation rate,
+the tilt-thrust dead-zone, and audio frequencies. The safe-landing thresholds
+for each difficulty are set in `apply_difficulty()` in `game.c`.
 
 ### Run without building
 Transfer `dist/lunar_lander.fap` directly to your Flipper and run it from the
@@ -75,7 +50,7 @@ modes only) makes the way you're holding the Flipper the new "straight up"
 for steering, then resumes. **Quit to menu** keeps a new high score, like
 holding Back does.
 
-### Vidya (VGM tilt) modes
+### 'Vidya' (VGM tilt) modes
 Requires the Flipper Zero Video Game Module. Tilt left/right steers the lander
 (device roll → lander angle, 1:1 mapping). Calibration captures the "upright"
 position at the start of each level, including after retries. If the zero
@@ -174,7 +149,33 @@ With Debug HUD on, everything except `S` is also logged at 6 Hz under
 | `docs/description.md` | App description shown in the Flipper Apps Catalog (limited Markdown) |
 | `changelog.md` | Version history, also shown in the catalog |
 
-## Tunables
-The top of `game.c` has a `#define` block for gravity, thrust, rotation rate,
-the tilt-thrust dead-zone, and audio frequencies. The safe-landing thresholds
-for each difficulty are set in `apply_difficulty()` in `game.c`.
+
+## Status
+- [x] Menu — thrust mode & fuel mode selectors, clickable title opens Info, lander icon opens High Score, wrench opens Settings
+- [x] 30-level campaign with procedural terrain seeded per level; spike removal pass
+- [x] Seeds 1–9999, each its own set of 30 levels (seed 1 is the original set)
+- [x] Lander physics — gravity, thrust, rotation, wrapping, collision
+- [x] Three button thrust modes: Button Tap Impulse (press), Button Binary (hold), Button Ramp (hold, ramps up)
+- [x] Thrust button: UP or OK, chosen in Settings
+- [x] Four Video Game Module "vidya" tilt control modes.
+- [x] Fuel campaign modes: Full refuel, or No-refuel (Easy 500 / Med 350 / Hard 200 total)
+- [x] Difficulty selector — scales safe-landing thresholds (Easy / Medium / Hard / Realistic / Custom)
+- [x] Distance-based pad multipliers: 1× (right below spawn), 2×, 3×, 5× (near edges)
+- [x] Scoring: `fuel × pad_multiplier × (HIGHEST_LEVEL − level + 1)`
+- [x] Level number shown at top center of HUD (L1–L30; T1–T2 during tutorial)
+- [x] HUD shows score, time, fuel (left) and angle θ, Vx, Vy (right)
+- [x] Sound — thrust tone (pitch scales with thrust level), tap blip, landing chime, crash rumble; Off / Low / Med / High
+- [x] Vibration — continuous on thrust, pulse per tap, 3-pulse celebration on landing, rumble on crash; Off / Low / Med / High
+- [x] Crash/landing banner — shows Vx and Vy at touchdown (plus the angle when it caused the crash); bad values blink on crash
+- [x] 20% dim overlay behind status banners
+- [x] Tutorial — 2 levels: flat terrain, full-width pad, ½ gravity (level 1) → full gravity, two pads at ⅓ and ⅔ width (level 2)
+- [x] Tutorial intro and transition popups adapt to the selected thrust mode and difficulty
+- [x] Settings screen — Sound, Vibration, Difficulty, Thrust button, Seed, TV mode, Debug HUD, with a scrollbar; settings and menu choices are saved to the SD card
+- [x] App icon
+- [x] Persisted high score with the seed it was set on (saved to SD card; open it from the lander icon on the menu)
+- [x] "Game complete" screen after level 30
+- [x] High-multiplier pads are narrower: 3×→13 px, 5×→10 px
+- [x] Multiplier labels drawn above a pad hide while the lander is over that pad
+- [x] Pause menu — tap Back mid-flight: Resume, Zero tilt (tilt modes), Quit to menu; hold Back 1 s to leave
+- [x] TV mode — squishes the playfield vertically for the Video Game Module's HDMI output
+- [x] Debug HUD (see below)
