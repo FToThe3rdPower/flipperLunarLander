@@ -21,7 +21,12 @@
 
 #define HIGH_SCORE_PATH EXT_PATH("apps_data/lunar_lander/score.bin")
 #define SETTINGS_PATH   EXT_PATH("apps_data/lunar_lander/lunarLanderSettings.bin")
-#define SETTINGS_VERSION 3
+#define SETTINGS_VERSION 4
+
+/* Written by a Video Game Module running the VGM480 firmware when it sees
+ * this game's tone channel: "audio=1" while it can play tones over HDMI. */
+#define VGM480_STATUS_PATH  EXT_PATH("apps_data/vgm480/status.txt")
+#define VGM480_POLL_MS      1000
 
 #include "lunar_lander.h"
 #include "menu.h"
@@ -63,6 +68,7 @@ typedef struct {
     bool tutorial_popup_showing;  // physics paused; waiting for OK to dismiss
     int  high_score;
     uint16_t high_score_seed;     // the seed the high score was set on
+    bool module_hdmi_audio;       // a VGM480 module reports HDMI audio (Auto mode)
     bool game_complete_new_record;
 
     /* Debug overlay — toggled from Settings screen. */
@@ -127,6 +133,34 @@ static void high_score_save(int hs, uint16_t seed) {
     furi_record_close(RECORD_STORAGE);
 }
 
+/* ----- VGM480 module status ---------------------------------------------- */
+
+/* A status left from an earlier session must not send tones to a TV that
+ * isn't there: start from "no module" and let the module write it again
+ * once it sees this game. */
+static void vgm480_status_clear(void) {
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    storage_simply_remove(storage, VGM480_STATUS_PATH);
+    furi_record_close(RECORD_STORAGE);
+}
+
+/* True if the module's status file says it can play tones over HDMI. */
+static bool vgm480_status_read(void) {
+    bool audio = false;
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    File* file = storage_file_alloc(storage);
+    if(storage_file_open(file, VGM480_STATUS_PATH, FSAM_READ, FSOM_OPEN_EXISTING)) {
+        char buf[64];
+        size_t n = storage_file_read(file, buf, sizeof(buf) - 1);
+        buf[n] = '\0';
+        audio = strstr(buf, "audio=1") != NULL;
+        storage_file_close(file);
+    }
+    storage_file_free(file);
+    furi_record_close(RECORD_STORAGE);
+    return audio;
+}
+
 /* ----- Settings persistence ---------------------------------------------- */
 
 typedef struct {
@@ -146,11 +180,15 @@ typedef struct {
     uint8_t thrust_key;
     uint8_t seed_lo;      // seed, low byte first
     uint8_t seed_hi;
+    /* Added in version 4 */
+    uint8_t hdmi_audio;
 } SavedSettings;
 
-/* Version 1 files stop after debug_hud, version 2 files after tv_mode. */
+/* Version 1 files stop after debug_hud, version 2 files after tv_mode,
+ * version 3 files after the seed. */
 #define SAVED_SETTINGS_V1_SIZE offsetof(SavedSettings, custom_vx)
 #define SAVED_SETTINGS_V2_SIZE offsetof(SavedSettings, thrust_key)
+#define SAVED_SETTINGS_V3_SIZE offsetof(SavedSettings, hdmi_audio)
 
 static SavedSettings settings_snapshot(const AppModel* m) {
     SavedSettings s = {
@@ -168,8 +206,17 @@ static SavedSettings settings_snapshot(const AppModel* m) {
         .thrust_key      = (uint8_t)m->menu.thrust_key,
         .seed_lo         = (uint8_t)(m->menu.seed & 0xFF),
         .seed_hi         = (uint8_t)(m->menu.seed >> 8),
+        .hdmi_audio      = (uint8_t)m->menu.hdmi_audio,
     };
     return s;
+}
+
+/* Tones go to the TV with HDMI audio out on Yes, or on Auto while a VGM480
+ * module reports HDMI audio. */
+static void tv_audio_apply(const AppModel* m) {
+    bool on = m->menu.hdmi_audio == HdmiAudioYes ||
+              (m->menu.hdmi_audio == HdmiAudioAuto && m->module_hdmi_audio);
+    game_set_tv_audio(on);
 }
 
 /* game.c keeps the custom limits, TV mode, thrust key and seed itself; push
@@ -179,6 +226,7 @@ static void settings_apply_to_game(const AppModel* m) {
     game_set_tv_mode(m->menu.tv_mode);
     game_set_thrust_key(m->menu.thrust_key);
     game_set_seed(m->menu.seed);
+    tv_audio_apply(m);
 }
 
 static void settings_load(AppModel* m) {
@@ -190,7 +238,7 @@ static void settings_load(AppModel* m) {
         /* Every value indexes a label/volume table, so a damaged file must
          * not get through: out-of-range values keep the defaults. Version 1
          * files predate the custom limits and TV mode, version 2 files the
-         * thrust key and seed. */
+         * thrust key and seed, version 3 files HDMI audio out. */
         bool base_ok = n >= SAVED_SETTINGS_V1_SIZE &&
                        s.version >= 1 && s.version <= SETTINGS_VERSION &&
                        s.thrust_mode < ThrustModeCount && s.fuel_mode < FuelModeCount &&
@@ -213,12 +261,15 @@ static void settings_load(AppModel* m) {
             m->menu.custom_angle = s.custom_angle;
             m->menu.tv_mode      = s.tv_mode != 0;
         }
-        if(base_ok && s.version >= 3 && n == sizeof(s)) {
+        if(base_ok && s.version >= 3 && n >= SAVED_SETTINGS_V3_SIZE) {
             uint16_t seed = (uint16_t)(s.seed_lo | (s.seed_hi << 8));
             if(s.thrust_key < ThrustKeyCount && seed >= SEED_MIN && seed <= SEED_MAX) {
                 m->menu.thrust_key = (ThrustKey)s.thrust_key;
                 m->menu.seed       = seed;
             }
+        }
+        if(base_ok && s.version >= 4 && n == sizeof(s) && s.hdmi_audio < HdmiAudioCount) {
+            m->menu.hdmi_audio = (HdmiAudio)s.hdmi_audio;
         }
         storage_file_close(file);
     }
@@ -248,6 +299,7 @@ typedef enum {
     SettingsRowThrustKey,
     SettingsRowSeed,         // OK picks a random seed
     SettingsRowTvMode,
+    SettingsRowHdmiAudio,
     SettingsRowDebugHud,
     SettingsRowCount,
 } SettingsRow;
@@ -274,6 +326,9 @@ static void settings_row_label(const AppModel* m, int row, char* buf, size_t siz
             break;
         case SettingsRowTvMode:
             snprintf(buf, size, "TV mode: %s", m->menu.tv_mode ? "On" : "Off");
+            break;
+        case SettingsRowHdmiAudio:
+            snprintf(buf, size, "HDMI audio out: %s", hdmi_audio_label[m->menu.hdmi_audio]);
             break;
         default:
             snprintf(buf, size, "Debug HUD: %s", m->debug_hud ? "On" : "Off");
@@ -306,6 +361,9 @@ static void settings_row_change(AppModel* m, int row, int step) {
             break;
         case SettingsRowTvMode:
             m->menu.tv_mode = !m->menu.tv_mode;
+            break;
+        case SettingsRowHdmiAudio:
+            m->menu.hdmi_audio = (HdmiAudio)cycle(m->menu.hdmi_audio, step, HdmiAudioCount);
             break;
         default:
             m->debug_hud = !m->debug_hud;
@@ -811,7 +869,12 @@ static void handle_tick(App* app, float dt) {
         /* Kept up to date here because game_init's memset clears it on
          * every retry and level change. */
         m->game.vgm_missing = m->vgm && !vgm_tilt_present(m->vgm);
-        if(m->tutorial_popup_showing) return;
+        if(m->tutorial_popup_showing) {
+            /* No ticks, so no audio updates: make sure nothing keeps
+             * sounding (e.g. a landing chime cut short by OK). */
+            game_audio_silence();
+            return;
+        }
         if(m->vgm && vgm_tilt_present(m->vgm)) {
             m->game.tilt_pitch = vgm_tilt_roll(m->vgm);
             m->game.tilt_roll  = vgm_tilt_pitch(m->vgm);
@@ -869,6 +932,7 @@ int32_t lunar_lander_app(void* p) {
     app->model.screen = ScreenMenu;
     app->model.should_exit = false;
     high_score_load(&app->model.high_score, &app->model.high_score_seed);
+    vgm480_status_clear();
 
     app->view_port = view_port_alloc();
     view_port_draw_callback_set(app->view_port, draw_callback, app);
@@ -879,6 +943,7 @@ int32_t lunar_lander_app(void* p) {
 
     uint32_t tick_freq = furi_kernel_get_tick_frequency();
     app->last_tick_ms = furi_get_tick();
+    uint32_t last_status_poll = app->last_tick_ms;
 
     while (!app->model.should_exit) {
         AppEvent ev;
@@ -928,6 +993,22 @@ int32_t lunar_lander_app(void* p) {
                 app->last_draw_tick = now;
                 view_port_update(app->view_port);
             }
+        }
+
+        /* HDMI audio out on Auto: follow the module's status file. Read
+         * outside the lock, since the SD card can be slow. Only this thread
+         * changes the screen and settings, so reading them here is safe. */
+        uint32_t now_ms = furi_get_tick();
+        if (live && app->model.menu.hdmi_audio == HdmiAudioAuto &&
+            now_ms - last_status_poll >= VGM480_POLL_MS * tick_freq / 1000) {
+            last_status_poll = now_ms;
+            bool audio = vgm480_status_read();
+            furi_mutex_acquire(app->mutex, FuriWaitForever);
+            if (audio != app->model.module_hdmi_audio) {
+                app->model.module_hdmi_audio = audio;
+                tv_audio_apply(&app->model);
+            }
+            furi_mutex_release(app->mutex);
         }
     }
 

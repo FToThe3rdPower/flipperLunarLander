@@ -30,6 +30,19 @@ typedef enum {
 
 extern const char* const thrust_key_label[ThrustKeyCount];
 
+/* HDMI audio out: where the game's tones play when a Video Game Module runs
+ * the VGM480 firmware. Auto uses the TV whenever the module reports HDMI
+ * audio, else the Flipper's speaker; Yes always sends tones to the module;
+ * No always uses the speaker. */
+typedef enum {
+    HdmiAudioAuto = 0,
+    HdmiAudioYes,
+    HdmiAudioNo,
+    HdmiAudioCount,
+} HdmiAudio;
+
+extern const char* const hdmi_audio_label[HdmiAudioCount];
+
 /* World seed, set in Settings: each seed is a different set of 30 levels.
  * Seed 1 is the original set. */
 #define SEED_MIN 1

@@ -14,6 +14,7 @@ Fly your lander down to a landing pad before the fuel runs out. Touch down slowl
 - Sound and vibration, each Off, Low, Med or High
 - High score and settings are saved to the SD card
 - TV mode corrects the stretched picture on the Video Game Module's HDMI output
+- HDMI audio out: on a Video Game Module running the VGM480 firmware, the sounds play on the TV
 
 ## Controls
 - Left and Right: rotate the lander
