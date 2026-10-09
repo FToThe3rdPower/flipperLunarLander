@@ -1,3 +1,8 @@
+## v1.2
+- HDMI audio out setting (Auto, Yes, No): with the VGM480 firmware on the Video Game Module, the game's sounds play on the TV. Auto switches to the TV whenever the module reports an HDMI TV with sound
+- The tone for the TV rides in two pixels at the right end of the bottom row. The ground under them is always at least 2 px tall (5 of the 30 seed-1 levels gain a 1 px bump at the right edge), and pad labels stay off the bottom row
+- Fixed a landing chime that could keep sounding behind a tutorial popup
+
 ## v1.1
 - Pause menu: tap Back while flying to pause, then Resume, Zero tilt (tilt modes) or Quit to menu. Holding Back 1 second still returns to the menu
 - Thrust button setting: fire the engine with Up or OK

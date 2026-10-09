@@ -27,7 +27,7 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [x] 20% dim overlay behind status banners
 - [x] Tutorial — 2 levels: flat terrain, full-width pad, ½ gravity (level 1) → full gravity, two pads at ⅓ and ⅔ width (level 2)
 - [x] Tutorial intro and transition popups adapt to the selected thrust mode and difficulty
-- [x] Settings screen — Sound, Vibration, Difficulty, Thrust button, Seed, TV mode, Debug HUD, with a scrollbar; settings and menu choices are saved to the SD card
+- [x] Settings screen — Sound, Vibration, Difficulty, Thrust button, Seed, TV mode, HDMI audio out, Debug HUD, with a scrollbar; settings and menu choices are saved to the SD card
 - [x] App icon
 - [x] Persisted high score with the seed it was set on (saved to SD card; open it from the lander icon on the menu)
 - [x] "Game complete" screen after level 30
@@ -35,6 +35,7 @@ Clauded 'from-scratch,' tweaked by FToThe3rdPower, inspired by the 1979 Atari ga
 - [x] Multiplier labels drawn above a pad hide while the lander is over that pad
 - [x] Pause menu — tap Back mid-flight: Resume, Zero tilt (tilt modes), Quit to menu; hold Back 1 s to leave
 - [x] TV mode — squishes the playfield vertically for the Video Game Module's HDMI output
+- [x] HDMI audio out (Auto / Yes / No) — sounds on the TV with the VGM480 module firmware
 - [x] Debug HUD (see below)
 
 ## Build & install
@@ -124,6 +125,38 @@ Flipper only streams its 128×64 frame. The firmware
 must accept, and repeats each Flipper row on 3 lines to fill more of the
 screen.
 
+The **VGM480** firmware for the module (below) sends 720×480 flagged as 16:9
+instead, with square pixels that fill most of a widescreen TV. Turn TV mode
+off with it, or the picture is squished twice.
+
+## HDMI audio out (VGM480)
+
+The Video Game Module only receives the Flipper's screen, so the stock module
+can't play the game's sounds. VGM480 is a modified module firmware
+(`vgm480` branch of a local clone of
+[video-game-module](https://github.com/flipperdevices/video-game-module);
+install `dist/vgm480-1.0.uf2` with the Video Game Module Tool's "Install
+Firmware from File") that reads a tone hidden in the screen and plays it over
+HDMI.
+
+Settings → HDMI audio out:
+
+| Setting | Sound |
+|---------|-------|
+| Auto (default) | On the TV while the module reports an HDMI TV with sound, otherwise the Flipper's speaker |
+| Yes | Always on the TV; silent if no TV is connected |
+| No | Always the Flipper's speaker, as before |
+
+How it works: the bottom row of the game screen is always ground. While the
+TV is playing the sound, two pixels at the right end of that row are flipped
+to encode the current tone (20 Hz steps; `vgm_tone_channel.h`, shared with the
+firmware). The ground under those pixels is always at least 2 px tall, or a
+pad on the bottom row, so they look like a notch in the ground; pad labels
+stay off the bottom row. The module answers by writing
+`apps_data/vgm480/status.txt` (`audio=1` while it can play sound); the game
+deletes that file when it starts and checks it once a second on Auto. The TV
+lags the Flipper by about one frame.
+
 In-game frames are drawn at ~31 fps (~15 fps while a banner or popup is up);
 physics still runs at 60 Hz. Each frame is sent to the TV over a serial link,
 and drawing fewer of them leaves the Flipper time for input.
@@ -166,6 +199,7 @@ With Debug HUD on, everything except `S` is also logged at 6 Hz under
 | `lunar_lander.h` | Shared enums — ThrustMode, FuelMode, Difficulty, Screen |
 | `menu.c / .h` | Title/menu screen and mode selectors |
 | `pause_menu.c / .h` | Pause menu rows and drawing; `game.c` decides what each choice does |
+| `vgm_tone_channel.h` | Encodes the current tone into the screen's bottom row for the VGM480 module firmware (an identical copy lives in the firmware) |
 | `game.c / .h` | Physics, terrain, collision, audio, drawing |
 | `lander_sprite.c / .h` | Lander silhouette — static and rotated with flame |
 | `vgm_tilt.c / .h` | VGM IMU wrapper (pitch/roll → steer/thrust) |

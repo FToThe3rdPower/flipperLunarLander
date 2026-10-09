@@ -128,6 +128,10 @@ void game_set_tv_mode(bool on);
 void game_set_thrust_key(ThrustKey key);
 /* World seed (SEED_MIN..SEED_MAX); applies from the next game_init. */
 void game_set_seed(uint16_t seed);
+/* Tones go to the TV instead of the speaker: game_draw hides the current
+ * tone in the bottom row for a VGM480 module (see vgm_tone_channel.h) and
+ * the speaker stays silent. Set by the app from the HDMI audio out setting. */
+void game_set_tv_audio(bool on);
 GameAction game_input(GameState* g, const InputEvent* ev, ThrustMode thrust_mode);
 void game_tick(GameState* g, ThrustMode mode, float dt);
 void game_draw(Canvas* canvas, const GameState* g);
@@ -141,6 +145,9 @@ void game_draw_tutorial_popup(Canvas* canvas, int tut_level, ThrustMode thrust_m
 void game_audio_start(void);
 void game_audio_stop(void);
 void game_audio_update(const GameState* g, ThrustMode mode, SoundLevel sound_level, VibrationLevel vibration_level);
+/* Silence the speaker, the TV tone and the vibration motor while the game
+ * isn't ticking (e.g. a tutorial popup). */
+void game_audio_silence(void);
 
 /* Pad count for a given level number (1-indexed). */
 int game_pads_for_level(int level);

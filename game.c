@@ -1,5 +1,6 @@
 #include "game.h"
 #include "lander_sprite.h"
+#include "vgm_tone_channel.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -241,6 +242,27 @@ static void pads_mark_edges(GameState* g) {
     }
 }
 
+/* True if column x is part of a pad's counted width. */
+static bool column_in_pad(const GameState* g, int x) {
+    for (int i = 0; i < g->num_pads; i++) {
+        if (x >= g->pad_x[i] && x < g->pad_x[i] + g->pad_w[i]) return true;
+    }
+    return false;
+}
+
+/* The tone channel's code pixels sit in the bottom row at the right edge
+ * (vgm_tone_channel.h). Keep every column under them at least 2 px tall,
+ * unless it's part of a pad sitting on the bottom row, so a code pixel
+ * always reads as ground and never sticks out. Runs last: nothing after it
+ * may lower these columns again. */
+static void terrain_keep_tone_code_grounded(GameState* g) {
+    for (int x = VTC_CODE_X0; x < SCREEN_W; x++) {
+        if (g->terrain[x] >= SCREEN_H - 1 && !column_in_pad(g, x)) {
+            g->terrain[x] = (uint8_t)(SCREEN_H - 2);
+        }
+    }
+}
+
 /* ----- Init -------------------------------------------------------------- */
 
 /* DifficultyCustom limits, set from Settings via game_set_custom_limits().
@@ -295,6 +317,7 @@ void game_init(GameState* g, int level, int score, FuelMode fuel_mode, int start
     pads_place(g);
     terrain_despike(g); // second pass: catches edge spikes introduced at pad boundaries
     pads_mark_edges(g);
+    terrain_keep_tone_code_grounded(g);
 
     g->x = (float)SCREEN_W / 2.0f;
     g->y = 6.0f;
@@ -777,7 +800,9 @@ static void draw_terrain(Canvas* canvas, const GameState* g) {
 
         int label_top_below = py + 3;
         int label_top_above = py - 2 - label_h;
-        if (label_top_below + label_h <= SCREEN_H) {
+        /* Labels below a pad stop above the bottom row, which carries the
+         * tone channel (vgm_tone_channel.h). */
+        if (label_top_below + label_h <= SCREEN_H - 1) {
             canvas_set_color(canvas, ColorWhite);
             canvas_draw_str_aligned(
                 canvas, px + pw / 2, label_top_below, AlignCenter, AlignTop, buf);
@@ -1065,6 +1090,8 @@ static void draw_flight_messages(Canvas* canvas, const GameState* g) {
     }
 }
 
+static void draw_tone_code(Canvas* canvas);
+
 void game_draw(Canvas* canvas, const GameState* g) {
     draw_terrain(canvas, g);
     draw_lander(canvas, g);
@@ -1098,6 +1125,7 @@ void game_draw(Canvas* canvas, const GameState* g) {
 
     if(g->status == GameStatusFlying) draw_flight_messages(canvas, g);
     draw_status_banner(canvas, g);
+    draw_tone_code(canvas);
 }
 
 /* ----- Audio + vibration -------------------------------------------------
@@ -1116,6 +1144,15 @@ static uint16_t  audio_current_freq = 0;   // 0 = silent
 static bool      audio_vibrating = false;
 static float     audio_volume = AUDIO_VOLUME;
 
+/* TV audio: the tone goes to a VGM480 module through the bottom row of the
+ * screen instead of the speaker. tv_tone_hz is what game_draw encodes. */
+static bool      tv_audio = false;
+static uint32_t  tv_tone_hz = 0;           // 0 = silent
+
+void game_set_tv_audio(bool on) {
+    tv_audio = on;
+}
+
 void game_audio_start(void) {
     if (audio_acquired) return;
     if (furi_hal_speaker_acquire(100)) {  // 100ms timeout; if taken, run silent
@@ -1126,6 +1163,7 @@ void game_audio_start(void) {
 }
 
 void game_audio_stop(void) {
+    tv_tone_hz = 0;
     if (audio_acquired) {
         furi_hal_speaker_stop();
         furi_hal_speaker_release();
@@ -1198,6 +1236,10 @@ void game_audio_update(const GameState* g, ThrustMode mode, SoundLevel sound_lev
 
     if(sound_level == SoundOff) target_freq = 0;
 
+    /* With TV audio the tone is drawn for the module and the speaker rests. */
+    tv_tone_hz = target_freq;
+    if(tv_audio) target_freq = 0;
+
     /* Software PWM for intensity. Counter resets on silence so every new
      * burst (crash, tap, thrust) always starts on the "on" tick. */
     bool target_vibro = false;
@@ -1215,4 +1257,22 @@ void game_audio_update(const GameState* g, ThrustMode mode, SoundLevel sound_lev
 
     audio_set_freq(target_freq);
     audio_set_vibro(target_vibro);
+}
+
+void game_audio_silence(void) {
+    tv_tone_hz = 0;
+    audio_set_freq(0);
+    audio_set_vibro(false);
+}
+
+/* The tone channel: two pixels at the right end of the bottom row, flipped
+ * from whatever colour the row has (ground, or inverted ground during the
+ * crash flash). Drawn last so nothing covers it. */
+static void draw_tone_code(Canvas* canvas) {
+    uint8_t a, b;
+    if(!tv_audio || !vtc_encode(tv_tone_hz, &a, &b)) return;
+    canvas_set_color(canvas, ColorXOR);
+    canvas_draw_dot(canvas, VTC_CODE_X0 + a, VTC_ROW);
+    canvas_draw_dot(canvas, VTC_CODE_X0 + b, VTC_ROW);
+    canvas_set_color(canvas, ColorBlack);
 }

@@ -23,6 +23,12 @@ const char* const thrust_key_label[ThrustKeyCount] = {
     "OK",
 };
 
+const char* const hdmi_audio_label[HdmiAudioCount] = {
+    "Auto",
+    "Yes",
+    "No",
+};
+
 void thrust_mode_desc(ThrustMode mode, ThrustKey key, char* buf, size_t size) {
     const char* k = thrust_key_label[key];
     switch(mode) {
@@ -227,6 +233,7 @@ void menu_init(MenuState* m) {
     m->tv_mode         = false;
     m->thrust_key      = ThrustKeyUp;
     m->seed            = SEED_MIN;
+    m->hdmi_audio      = HdmiAudioAuto;
 }
 
 MenuAction menu_input(MenuState* m, const InputEvent* ev) {

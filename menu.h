@@ -56,6 +56,7 @@ typedef struct {
     bool         tv_mode;        // squish the playfield for the Video Game Module
     ThrustKey    thrust_key;     // UP or OK fires the engine
     uint16_t     seed;           // SEED_MIN..SEED_MAX; picks the set of levels
+    HdmiAudio    hdmi_audio;     // where tones play with a VGM480 module
 } MenuState;
 
 void menu_init(MenuState* m);
