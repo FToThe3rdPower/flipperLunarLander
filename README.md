@@ -212,4 +212,4 @@ With Debug HUD on, everything except `S` is also logged at 6 Hz under
 - [x] Pause menu — tap Back mid-flight: Resume, Zero tilt (tilt modes), Quit to menu; hold Back 1 s to leave
 - [x] TV mode — squishes the playfield vertically for the Video Game Module's HDMI output
 - [x] HDMI audio out (Auto / Yes / No) — sounds on the TV with the VGM480 module firmware
-- [x] Debug HUD (see below)
+- [x] Debug HUD
